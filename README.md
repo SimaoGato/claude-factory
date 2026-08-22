@@ -35,9 +35,17 @@ waiting on you.
 
 ## Prerequisites
 
-The pipeline pushes branches, opens PRs, undrafts them, and watches CI — all
-via the `gh` CLI, so it needs to be authenticated before you run
-`/claude-factory:deliver`:
+**A git repo with an `origin` remote.** The pipeline branches, pushes and opens
+PRs, so `/claude-factory:deliver` can't run without one. `/discover` runs the
+`git init -b main` and the first commit for you on a new project; creating the
+GitHub repo is left to you, deliberately — it's your account, your visibility
+choice:
+
+```
+gh repo create <name> --private --source=. --remote=origin --push
+```
+
+**An authenticated `gh` CLI.** Every PR/CI operation goes through it:
 
 ```
 gh auth login
@@ -61,10 +69,19 @@ gh auth login -s gist
 # or, if already logged in: gh auth refresh -s gist
 ```
 
-You don't have to remember to check this yourself — every workflow
-(`deliver`, `promote`, `rework`) runs a preflight `gh auth status` check
-before doing anything else and stops immediately with the exact command to
-run if something's missing, rather than failing confusingly mid-Implement.
+You don't have to remember to check any of this yourself — every workflow
+(`deliver`, `promote`, `rework`) runs a preflight check before doing anything
+else and stops immediately with the exact command to run if something's
+missing, rather than failing confusingly mid-Implement. `deliver`'s preflight
+covers the repo and remote too, not just `gh` auth.
+
+**Model selection for the planning commands.** `/discover`, `/epics` and
+`/stories` carry a `model: opus` pin, but a command's `model:` frontmatter only
+applies for the turn that invokes it — Claude Code resumes the session model on
+your next prompt. Those three are conversational (discovery is an interview;
+the other two end by asking what to do next), so most of their work runs on
+whatever `/model` is set to. Run `/model opus` for the session before them if
+that's what you want.
 
 ## Install
 
@@ -136,6 +153,10 @@ them. Add per-project, only when it actually helps:
   `gh auth login` rather than a persistent MCP server with its own auth flow.
   Switching to GitHub MCP wouldn't add capability, just a second way to do
   the same thing — this is noted here so it isn't "rediscovered" as a gap.
+`/discover` prints the relevant ones from this list at the end of its run
+(checking `claude mcp list` first so it doesn't suggest what you already have),
+since discovery is when the platform gets decided. It never installs one itself.
+
 - **UI-automation MCP — add if the project has a UI; pick the one matching
   the platform.**
   ```

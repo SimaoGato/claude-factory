@@ -7,8 +7,17 @@ model: opus
 
 You are running the **Story breakdown** phase. Target epic: $ARGUMENTS
 
+> The `model:` pin above only covers the **first turn** — Claude Code resumes the
+> session model on the next prompt, and this command ends by asking which story
+> to deliver. Tell the user to run `/model opus` for the session if they want
+> Opus for the follow-ups too.
+
 1. Read the epic file `docs/epics/$ARGUMENTS-*.md` and the PRD for context.
-   If the epic file does not exist, list available epics and stop.
+   If the epic file does not exist, list available epics and stop. Also check
+   that `CLAUDE.md` exists and has a `## Pipeline config` section — every
+   story written here is destined for `/claude-factory:deliver`, which reads
+   that block first thing. If it's missing, tell the user to run `/discover`
+   (it scaffolds `CLAUDE.md`) and stop.
 2. Consult the `story-format` skill for the exact story template and the
    "INVEST" quality bar. Each story must be small enough to deliver in one
    `/claude-factory:deliver` run (a few hours of agent work), and independently testable.

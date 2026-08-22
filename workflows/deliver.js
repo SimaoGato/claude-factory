@@ -50,8 +50,11 @@ const pipelineConfigSchema = {
 
 const preflightSchema = {
   type: 'object',
-  required: ['authenticated', 'hasRepoScope', 'hasWorkflowScope', 'message'],
+  required: ['insideRepo', 'hasCommits', 'hasOrigin', 'authenticated', 'hasRepoScope', 'hasWorkflowScope', 'message'],
   properties: {
+    insideRepo: { type: 'boolean' },
+    hasCommits: { type: 'boolean' },
+    hasOrigin: { type: 'boolean' },
     authenticated: { type: 'boolean' },
     hasRepoScope: { type: 'boolean' },
     hasWorkflowScope: { type: 'boolean' },
@@ -156,16 +159,24 @@ const config = await phase('config', () =>
 const retryBudget = config.retry_budget
 
 // ---- preflight: fail fast, before spending anything on Refine/Implement ---
-// Answers "how do I know I need to log in?" — the pipeline tells you here,
-// immediately, instead of failing confusingly mid-Implement when it tries to
-// push or open a PR.
+// Answers "how do I know I need a repo / to log in?" — the pipeline tells you
+// here, immediately, instead of failing confusingly mid-Implement when it tries
+// to branch, push, or open a PR.
 
 const preflight = await phase('preflight', () =>
-  agent('Run "gh auth status" (and inspect its token-scopes output) via Bash. Report whether you are authenticated, whether the token has the "repo" scope, and whether it has the "workflow" scope.', {
+  agent('Via Bash, run each of these and report the outcome: "git rev-parse --is-inside-work-tree" (insideRepo), "git rev-parse HEAD" (hasCommits), "git remote get-url origin" (hasOrigin), and "gh auth status" with its token-scopes output (authenticated, plus whether the token has the "repo" and "workflow" scopes). Do not create, commit, or push anything — this is a read-only check.', {
     schema: preflightSchema,
     tools: ['Bash'],
   }),
 )
+// Repo first: no work tree / no commits / no remote is a more fundamental block
+// than a missing gh scope, and the fix is a different command.
+if (!preflight.insideRepo || !preflight.hasCommits) {
+  return { error: 'This directory is not a git repository with at least one commit, so there is nothing to branch from or push. Run: git init -b main && git add -A && git commit -m "chore: initial commit" — then re-run /claude-factory:deliver. (/claude-factory:discover does this for you on a new project.)' }
+}
+if (!preflight.hasOrigin) {
+  return { error: 'This repository has no "origin" remote, so the pipeline cannot push a branch or open a PR. Create the GitHub repo yourself: gh repo create <name> --private --source=. --remote=origin --push — then re-run /claude-factory:deliver.' }
+}
 if (!preflight.authenticated || !preflight.hasRepoScope) {
   return { error: `gh is not ready for this pipeline: ${preflight.message}. Run "gh auth login" (add "-s workflow" too if this story might touch .github/workflows/*), then re-run /claude-factory:deliver.` }
 }

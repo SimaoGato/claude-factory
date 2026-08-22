@@ -7,6 +7,11 @@ model: opus
 
 You are running the **Epic breakdown** phase.
 
+> The `model:` pin above only covers the **first turn** — Claude Code resumes the
+> session model on the next prompt, and this command ends by asking the user
+> which epic to break down. Tell them to run `/model opus` for the session if
+> they want Opus for the follow-ups too.
+
 1. Read `docs/product/PRD.md`. If it does not exist, tell the user to run
    `/discover` first and stop.
 2. Group the functional requirements into **epics** — coherent, independently
