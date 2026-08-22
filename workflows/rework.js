@@ -158,13 +158,20 @@ await phase('rework', () =>
 // ---- re-stabilize: same bounded Review ⇄ Rework ⇄ QA ⇄ CI loop as deliver.js
 
 const areas = story.affectedAreas.length ? story.affectedAreas : ['general']
+const prNumber = story.pr
+const branch = story.branch
 let cycle = 0
 let ciPassed = false
 
+// The block between the markers below is kept byte-identical to the same
+// block in workflows/deliver.js — scripts/check-workflows.sh (run in
+// .github/workflows/validate.yml) diffs them and fails CI if they drift.
+// If you edit this loop, make the same edit in both files.
+// STABILIZE-LOOP-START
 while (cycle < retryBudget) {
   const reviews = await phase('review', () =>
     pipeline(areas, area =>
-      agent(`Review PR #${story.pr} (branch ${story.branch}), area: ${area}. Only review files in that area's diff.`, {
+      agent(`Review PR #${prNumber} (branch ${branch}), area: ${area}. Only review files in that area's diff.`, {
         agentType: 'code-reviewer',
         schema: reviewSchema,
         model: config.models.review,
@@ -177,7 +184,7 @@ while (cycle < retryBudget) {
 
   if (critical.length === 0 && warnings.length === 0) {
     const qa = await phase('qa', () =>
-      agent(`QA-verify PR #${story.pr} against the acceptance criteria in ${storyPath}.`, {
+      agent(`QA-verify PR #${prNumber} against the acceptance criteria in ${storyPath}.`, {
         agentType: 'qa-verifier',
         schema: qaSchema,
         model: config.models.qa,
@@ -185,7 +192,7 @@ while (cycle < retryBudget) {
     )
     if (qa.passed) {
       const ci = await phase('ci', () =>
-        agent(`Wait for CI on PR #${story.pr}: run "${config.ci.watch_command.replace('{pr_number}', story.pr)}" and report the final state. Do not merge or close the PR.`, {
+        agent(`Wait for CI on PR #${prNumber}: run "${config.ci.watch_command.replace('{pr_number}', prNumber)}" and report the final state. Do not merge or close the PR.`, {
           schema: ciSchema,
           tools: ['Bash'],
         }),
@@ -193,7 +200,7 @@ while (cycle < retryBudget) {
       if (ci.passed) { ciPassed = true; break }
       log(`CI cycle ${cycle + 1}/${retryBudget}: FAILED — ${ci.failures.join('; ')}`)
       await phase('rework', () =>
-        agent(`Fix these CI failures on PR #${story.pr} (branch ${story.branch}): ${ci.failures.join('; ')}`, {
+        agent(`Fix these CI failures on PR #${prNumber} (branch ${branch}): ${ci.failures.join('; ')}`, {
           agentType: 'reworker',
           schema: reworkSchema,
           model: config.models.rework,
@@ -202,7 +209,7 @@ while (cycle < retryBudget) {
     } else {
       log(`QA cycle ${cycle + 1}/${retryBudget}: FAILED — ${qa.bugReport}`)
       await phase('rework', () =>
-        agent(`Fix this QA-reported bug on PR #${story.pr} (branch ${story.branch}): ${qa.bugReport}`, {
+        agent(`Fix this QA-reported bug on PR #${prNumber} (branch ${branch}): ${qa.bugReport}`, {
           agentType: 'reworker',
           schema: reworkSchema,
           model: config.models.rework,
@@ -212,7 +219,7 @@ while (cycle < retryBudget) {
   } else {
     log(`Review cycle ${cycle + 1}/${retryBudget}: ${critical.length} critical, ${warnings.length} warning`)
     await phase('rework', () =>
-      agent(`Fix these review findings on PR #${story.pr} (branch ${story.branch}). CRITICAL: ${critical.join('; ') || 'none'}. WARNING: ${warnings.join('; ') || 'none'}.`, {
+      agent(`Fix these review findings on PR #${prNumber} (branch ${branch}). CRITICAL: ${critical.join('; ') || 'none'}. WARNING: ${warnings.join('; ') || 'none'}.`, {
         agentType: 'reworker',
         schema: reworkSchema,
         model: config.models.rework,
@@ -221,24 +228,25 @@ while (cycle < retryBudget) {
   }
   cycle++
 }
-if (!ciPassed) return escalate('review/QA/CI retry budget exhausted during rework', { pr: story.pr, cycle })
+// STABILIZE-LOOP-END
+if (!ciPassed) return escalate('review/QA/CI retry budget exhausted during rework', { pr: prNumber, cycle })
 
 // ---- back to in_review for a human to re-check -----------------------------
 // (status is already in_review; just refresh the PR comment — never
 // codifies, never undrafts, never merges — same handoff as deliver.js)
 
 await phase('hand-off', () =>
-  agent(`Post a comment on PR #${story.pr} summarizing the rework just done for: "${issue}". Note it's ready for re-verification. Do NOT change frontmatter status away from in_review, and do NOT undraft, merge, or close the PR.`, {
+  agent(`Post a comment on PR #${prNumber} with exactly this structure (fill in the blanks): "## Ready for re-verification\\n\\n**What changed this round:** ${issue}\\n\\n**Branch:** ${branch}\\n\\n**How to test locally:** <fill in — pull the branch and the commands to run it>". Do NOT change frontmatter status away from in_review, and do NOT undraft, merge, or close the PR.`, {
     tools: ['Bash'],
   }),
 )
 
-const nextSteps = `Manually re-verify PR #${story.pr}, then run /claude-factory:promote ${storyPath} (approve) or /claude-factory:rework ${storyPath} "<issue>" again (reject with a reason).`
-log(`${storyPath} is back in_review after rework: PR #${story.pr} — CI green, still draft. ${nextSteps}`)
+const nextSteps = `Manually re-verify PR #${prNumber}, then run /claude-factory:promote ${storyPath} (approve) or /claude-factory:rework ${storyPath} "<issue>" again (reject with a reason).`
+log(`${storyPath} is back in_review after rework: PR #${prNumber} — CI green, still draft. ${nextSteps}`)
 
 return {
   story: storyPath,
-  pr: story.pr,
+  pr: prNumber,
   status: 'in_review',
   retryCyclesUsed: cycle,
   escalated: false,

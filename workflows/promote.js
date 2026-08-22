@@ -113,6 +113,31 @@ if (story.status !== 'in_review') {
   return { error: `${storyPath} has status "${story.status}", not "in_review" — nothing to promote. Run /claude-factory:deliver or /claude-factory:rework first.` }
 }
 
+// ---- re-verify CI is STILL green before doing anything irreversible -------
+// `deliver`/`rework` confirmed CI was green when they finished, but time may
+// have passed since — someone could have pushed another commit to the branch,
+// or a flaky test could have flipped. Check current status (not --watch, it
+// should already be resolved) rather than trusting stale information.
+
+const ciSchema = {
+  type: 'object',
+  required: ['passed'],
+  properties: {
+    passed: { type: 'boolean' },
+    failures: { type: 'array', items: { type: 'string' } },
+  },
+}
+
+const ci = await phase('verify-ci', () =>
+  agent(`Check current CI status on PR #${story.pr}: run "gh pr checks ${story.pr} --json name,state" (no --watch — just the current status) and report whether it's passing.`, {
+    schema: ciSchema,
+    tools: ['Bash'],
+  }),
+)
+if (!ci.passed) {
+  return { error: `CI is not green on PR #${story.pr} anymore (${ci.failures.join('; ') || 'unknown failure'}) — something changed since it was marked in_review. Investigate, or run /claude-factory:rework instead of promoting on stale information.` }
+}
+
 // ---- codify (two-tier: decision log by default, ADR only above the bar) ---
 
 const codified = await phase('codify', () =>

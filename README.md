@@ -156,4 +156,6 @@ workflows/rework.js            human-triggered rejection: fix + re-stabilize
 agents/                        the 8 specialist subagents the workflows orchestrate
 skills/                        story-format, tdd-discipline, pr-conventions
 templates/CLAUDE.md            scaffolded into a project's root by /discover
+scripts/check-workflows.sh     JS syntax + stabilize-loop drift check, run in CI
+.github/workflows/validate.yml CI for this repo itself: claude plugin validate + the script above
 ```

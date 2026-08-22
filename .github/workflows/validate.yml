@@ -1,0 +1,36 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Validate plugin manifest
+        run: claude plugin validate .claude-plugin/plugin.json --strict
+
+      - name: Validate marketplace manifest
+        run: claude plugin validate .claude-plugin/marketplace.json --strict
+
+      - name: Validate agents
+        run: claude plugin validate agents --strict
+
+      - name: Validate commands
+        run: claude plugin validate commands --strict
+
+      - name: Validate skills
+        run: claude plugin validate skills --strict
+
+      - name: Check workflow scripts (syntax + stabilize-loop drift)
+        run: ./scripts/check-workflows.sh

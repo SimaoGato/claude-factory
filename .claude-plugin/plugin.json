@@ -1,8 +1,8 @@
 {
   "name": "claude-factory",
   "displayName": "Claude Factory",
-  "version": "0.1.0",
-  "description": "PRD → epics → stories → implementation pipeline: discover/epics/stories/triage/fix commands plus a deterministic /claude-factory:deliver workflow that takes a story to a green-CI, human-mergeable PR.",
+  "version": "0.2.0",
+  "description": "PRD → epics → stories → implementation pipeline: discover/epics/stories/triage/fix commands plus deterministic deliver/promote/rework workflows that take a story to a green-CI PR with a human sign-off gate before it's marked ready.",
   "author": {
     "name": "Simão Gato"
   },
