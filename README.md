@@ -136,9 +136,11 @@ them. Add per-project, only when it actually helps:
   `gh auth login` rather than a persistent MCP server with its own auth flow.
   Switching to GitHub MCP wouldn't add capability, just a second way to do
   the same thing — this is noted here so it isn't "rediscovered" as a gap.
-- **Playwright MCP — add if the project has a UI.**
+- **UI-automation MCP — add if the project has a UI; pick the one matching
+  the platform.**
   ```
-  claude mcp add playwright npx @playwright/mcp@latest
+  claude mcp add playwright npx @playwright/mcp@latest        # web
+  claude mcp add mobile npx @mobilenext/mobile-mcp@latest     # React Native/Expo
   ```
   Once present, `qa-verifier` drives the golden-path flow through it and
   screenshots for a **baseline visual sanity check** (obviously broken or
