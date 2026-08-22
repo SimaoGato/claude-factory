@@ -27,6 +27,13 @@ As a <role>, I want <capability>, so that <benefit>.
 ## Context
 Why this exists. Link to PRD sections and the parent epic.
 
+## Design references (optional — UI-affecting stories only)
+- Image(s) at `docs/stories/assets/<story-id>/`, one line each describing
+  what it shows (e.g. "dashboard.png — target layout for the summary view").
+- If designed with Claude Design or Figma: export/save a PNG or screenshot
+  into that folder — story-refiner and implementer read local images only,
+  they cannot fetch a live artifact/Figma URL.
+
 ## Acceptance criteria
 1. Given <context>, when <action>, then <observable outcome>.
 2. ...

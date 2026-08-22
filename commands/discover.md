@@ -47,6 +47,11 @@ Idea from the user: $ARGUMENTS
      `docs/stories/*.md` and `docs/stories/done/*.md` for the highest existing
      number in that prefix, so archived files still reserve their number and
      a new file never collides with one that's been archived.
+
+     A UI-affecting story with a visual reference (mockup, screenshot, an
+     export from Claude Design or Figma) keeps its image(s) at
+     `docs/stories/assets/<story-id>/`, linked from that story's "## Design
+     references" section — see `story-format`.
      ```
 
    Then **bootstrap git** — after the files above exist, so the first commit

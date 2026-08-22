@@ -11,6 +11,10 @@ receive the diff for that area; do not review files outside it.
 Review for:
 - Correctness against the acceptance criteria and the plan.
 - Tests: do they actually cover each AC? would they fail without the change?
+- For any new test file: does it match the project's test-discovery
+  configuration (test script glob, `testMatch`, `pytest.ini` `testpaths`, or
+  the CI workflow's test-invocation step)? A new test CI never actually runs
+  is a CRITICAL finding — it's a false green, not a passing test.
 - Security (injection, authz, secrets in logs), error handling, edge cases.
 - Readability, naming, and consistency with existing conventions.
 - Comment discipline (per `code-comments`): flag comments that restate code,

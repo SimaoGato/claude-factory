@@ -50,9 +50,11 @@ one number to change, not several scattered across prompts.
 
 ```yaml
 pipeline:
-  # Shared retry budget: how many times Challenge→Refine may loop, and
-  # separately how many times Review→Rework (QA and CI failures count
-  # against the same Rework budget) may loop, before escalating to a human.
+  # Shared retry budget number, applied independently to each bounded loop:
+  # Challenge→Refine, Review→Rework, QA→Rework, and CI→Rework each get their
+  # own count of `retry_budget` attempts before escalating to a human — a
+  # story needing several rounds of review fixes doesn't eat into QA's or
+  # CI's budget, and vice versa.
   retry_budget: 2
   models:
     refine: sonnet
@@ -67,6 +69,10 @@ pipeline:
     # Command an agent runs (with the Bash tool) to wait for checks to finish.
     # Must exit only once checks are final, and must never merge anything.
     watch_command: "gh pr checks {pr_number} --watch --json name,state"
+    # Whether "CI is green" is enforced as a Definition of Done gate. If this
+    # repo has no .github/workflows/ configured, preflight hard-blocks unless
+    # you set this to false — that's an explicit opt-out, not a silent skip.
+    required: true
 ```
 
 ## Decision records

@@ -104,3 +104,13 @@ stop, and write it test-first for real.
 Look for existing config (package.json scripts, pytest.ini, go.mod, etc.) and
 follow the project's existing conventions and runner. Match the style already in
 the repo before introducing anything new.
+
+## Confirm new tests are actually discovered
+"The test passes" isn't enough — a test that CI never runs can never fail
+either. After adding a test file, run the project's *existing aggregate test
+command* (the one CI's workflow invokes, e.g. `npm test`, `pytest`, `go
+test ./...`), not just the new file directly, and confirm the new test's name
+appears in that run's output. If the new test's location falls outside the
+current discovery pattern (glob/`testMatch`/`testpaths`/file list), fix the
+test config — or the CI workflow itself — in the same PR. A test that only
+passes when invoked directly is a false green.
