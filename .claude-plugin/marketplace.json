@@ -1,0 +1,25 @@
+{
+  "name": "claude-factory",
+  "description": "Simão's claude-factory plugin plus a mirrored ponytail entry so it can be declared as a same-marketplace dependency.",
+  "owner": {
+    "name": "Simão Gato",
+    "email": "simao.valedegato@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "claude-factory",
+      "source": ".",
+      "description": "PRD → epics → stories → implementation pipeline with a deterministic delivery workflow.",
+      "category": "productivity"
+    },
+    {
+      "name": "ponytail",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/DietrichGebert/ponytail.git"
+      },
+      "description": "Mirrors DietrichGebert/ponytail so claude-factory can declare it as a same-marketplace dependency. Upstream: https://github.com/DietrichGebert/ponytail — 'write the least code' discipline, active by default (mode: full) once installed.",
+      "category": "productivity"
+    }
+  ]
+}
