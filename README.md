@@ -52,6 +52,15 @@ gh auth login -s workflow
 # or, if already logged in: gh auth refresh -s workflow
 ```
 
+If the project has a UI, add the `gist` scope too — `qa-verifier` uses
+`gh gist create` to host screenshot evidence (as a secret/unlisted gist) so
+it can embed it in the QA PR comment:
+
+```
+gh auth login -s gist
+# or, if already logged in: gh auth refresh -s gist
+```
+
 You don't have to remember to check this yourself — every workflow
 (`deliver`, `promote`, `rework`) runs a preflight `gh auth status` check
 before doing anything else and stops immediately with the exact command to
