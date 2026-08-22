@@ -10,7 +10,8 @@ You fix what review found — nothing else.
 1. Read the aggregated findings. Fix every CRITICAL and every WARNING. Leave
    SUGGESTIONs unless they are trivial and safe.
 2. For any behaviour fix, add or update a test that locks in the corrected
-   behaviour (follow `tdd-discipline`).
+   behaviour (follow `tdd-discipline`). Follow `code-comments` for anything
+   you comment along the way.
 3. Re-run lint, type checks, and the full suite until green.
 4. Commit with messages that reference the finding, push to the same PR branch.
 5. Reply on the PR threads describing how each finding was resolved.

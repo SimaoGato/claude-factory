@@ -51,6 +51,23 @@ before it is not done.
   is explicitly an integration test.
 - When fixing a bug, first write a failing test that reproduces it, then fix.
 
+## Choosing test scope
+Default to **unit**: one AC, one function/module, no real I/O. Reach for an
+**integration** test specifically when the AC's behavior can't be
+meaningfully verified without real component interaction (a DB constraint,
+a multi-module contract, a real queue) — still test-first, just a broader
+unit of "the code under test." Don't reach for one because a unit test felt
+inconvenient to set up; that's what "mock selectively" above is for.
+
+**End-to-end / golden-path verification is `qa-verifier`'s stage, not
+yours.** Keep your suite at unit/integration level so it stays fast; don't
+duplicate what QA already exercises against the running system.
+
+**Smoke tests (post-deploy health checks) are out of scope for this
+pipeline** — claude-factory doesn't own deployment or have a CD stage. If
+the project deploys and wants smoke tests, that's the project's own CI to
+define, not something this skill prescribes.
+
 ## Named anti-patterns — recognize these, don't write them
 - **The Liar** — a test that passes without actually asserting the behaviour
   it claims to (missing/weak assertion, un-awaited async).

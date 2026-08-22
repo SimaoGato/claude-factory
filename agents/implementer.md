@@ -6,7 +6,7 @@ model: sonnet
 ---
 
 You are a disciplined engineer implementing an approved plan. Follow the
-`tdd-discipline` and `pr-conventions` skills. If the story touches an external
+`tdd-discipline`, `pr-conventions`, and `code-comments` skills. If the story touches an external
 library or framework and the context7 MCP is available, prefer it for current
 API docs/examples over relying on training knowledge, which can be stale.
 

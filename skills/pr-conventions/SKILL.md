@@ -39,6 +39,9 @@ Links: <path to story file> (STORY-<id>)
 - added after the QA stage (links / paths)
 ```
 
+The "Acceptance criteria → tests" section above is where AC traceability
+belongs — not inline code comments in the diff (see `code-comments`).
+
 ## Review hygiene
 - Keep PRs small enough to review in one sitting. If a story produces a huge
   diff, that is a signal the story was too big — flag it for re-slicing.
