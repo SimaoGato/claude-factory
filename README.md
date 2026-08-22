@@ -33,12 +33,41 @@ for bugs found in an still-open PR); `/status-glance` gives a read-only table
 of every story/chore/bugfix, including which ones are sitting in `in_review`
 waiting on you.
 
+## Prerequisites
+
+The pipeline pushes branches, opens PRs, undrafts them, and watches CI — all
+via the `gh` CLI, so it needs to be authenticated before you run
+`/claude-factory:deliver`:
+
+```
+gh auth login
+```
+
+If any of your stories might touch `.github/workflows/*` (CI config itself),
+add the `workflow` scope too — GitHub silently rejects pushes to workflow
+files without it:
+
+```
+gh auth login -s workflow
+# or, if already logged in: gh auth refresh -s workflow
+```
+
+You don't have to remember to check this yourself — every workflow
+(`deliver`, `promote`, `rework`) runs a preflight `gh auth status` check
+before doing anything else and stops immediately with the exact command to
+run if something's missing, rather than failing confusingly mid-Implement.
+
 ## Install
 
 ```
 /plugin marketplace add <your-github-user>/claude-factory
 /plugin install claude-factory@claude-factory
 ```
+
+Choose **user scope** when prompted, unless you specifically want this
+checked into one repo's shared config for collaborators — user scope makes
+the pipeline available in every project you open, which is the point of a
+personal delivery pipeline like this.
 
 This also installs [ponytail](https://github.com/DietrichGebert/ponytail)
 (`plugin.json`'s `dependencies` field, resolved from this repo's own
@@ -84,6 +113,36 @@ standalone `docs/adr/ADR-<NNN>-<slug>.md` when the decision is hard to
 reverse, crosses multiple modules/teams, or was a genuine judgment call among
 real alternatives — and has to say which of those applied. Most decisions
 don't clear that bar, so most stories don't get a new file.
+
+## Optional MCP servers
+
+None of these are bundled or required — the pipeline works without any of
+them. Add per-project, only when it actually helps:
+
+- **GitHub MCP — deliberately not used.** Every PR/CI operation
+  (`implementer`, `reworker`, the CI-wait step, `promote`'s undraft) already
+  goes through the `gh` CLI via Bash. That's a better fit here than GitHub
+  MCP tool calls: it works identically whether an agent is running
+  interactively or unattended inside a workflow, and needs only
+  `gh auth login` rather than a persistent MCP server with its own auth flow.
+  Switching to GitHub MCP wouldn't add capability, just a second way to do
+  the same thing — this is noted here so it isn't "rediscovered" as a gap.
+- **Playwright MCP — add if the project has a UI.**
+  ```
+  claude mcp add playwright npx @playwright/mcp@latest
+  ```
+  Once present, `qa-verifier` drives the golden-path flow through it and
+  screenshots for a **baseline visual sanity check** (obviously broken or
+  unstyled rendering) alongside its usual functional PASS/FAIL per AC. This
+  is a sanity check, not a full design/polish review — genuinely
+  design-sensitive work still wants a human look.
+- **context7 MCP — add if the project leans on external library/framework
+  APIs.**
+  ```
+  claude mcp add context7 -- npx -y @upstash/context7-mcp@latest
+  ```
+  Once present, `implementer`/`implementer-light` prefer it for current API
+  docs over relying on (potentially stale) training knowledge.
 
 ## Layout
 

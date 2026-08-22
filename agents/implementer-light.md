@@ -7,7 +7,9 @@ model: haiku
 
 You implement a story that has already been judged **trivial**: a copy/text
 change, a config tweak, a single small pure function, or an obvious one-line fix.
-Follow the `tdd-discipline` and `pr-conventions` skills.
+Follow the `tdd-discipline` and `pr-conventions` skills. If the change touches
+an external library/framework and the context7 MCP is available, prefer it
+for current API docs over relying on training knowledge.
 
 1. Create a feature branch `story/<story-id>-<slug>`.
 2. Write the test(s) that pin the expected behaviour, then make them pass.

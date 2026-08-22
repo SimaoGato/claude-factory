@@ -40,6 +40,17 @@ const pipelineConfigSchema = {
   },
 }
 
+const preflightSchema = {
+  type: 'object',
+  required: ['authenticated', 'hasRepoScope', 'hasWorkflowScope', 'message'],
+  properties: {
+    authenticated: { type: 'boolean' },
+    hasRepoScope: { type: 'boolean' },
+    hasWorkflowScope: { type: 'boolean' },
+    message: { type: 'string' },
+  },
+}
+
 const storyStateSchema = {
   type: 'object',
   required: ['id', 'pr', 'branch', 'status', 'affectedAreas'],
@@ -111,6 +122,16 @@ const config = await phase('config', () =>
   }),
 )
 const retryBudget = config.retry_budget
+
+const preflight = await phase('preflight', () =>
+  agent('Run "gh auth status" (and inspect its token-scopes output) via Bash. Report whether you are authenticated, whether the token has the "repo" scope, and whether it has the "workflow" scope.', {
+    schema: preflightSchema,
+    tools: ['Bash'],
+  }),
+)
+if (!preflight.authenticated || !preflight.hasRepoScope) {
+  return { error: `gh is not ready for this pipeline: ${preflight.message}. Run "gh auth login", then re-run /claude-factory:rework.` }
+}
 
 const story = await phase('read-story', () =>
   agent(`Read ${storyPath}: return its id, pr number, branch, status, and the affected areas listed in its Implementation Plan section.`, {

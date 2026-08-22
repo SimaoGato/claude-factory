@@ -48,6 +48,17 @@ const pipelineConfigSchema = {
   },
 }
 
+const preflightSchema = {
+  type: 'object',
+  required: ['authenticated', 'hasRepoScope', 'hasWorkflowScope', 'message'],
+  properties: {
+    authenticated: { type: 'boolean' },
+    hasRepoScope: { type: 'boolean' },
+    hasWorkflowScope: { type: 'boolean' },
+    message: { type: 'string' },
+  },
+}
+
 const planSchema = {
   type: 'object',
   required: ['affectedAreas', 'complexity', 'summary'],
@@ -143,6 +154,24 @@ const config = await phase('config', () =>
   }),
 )
 const retryBudget = config.retry_budget
+
+// ---- preflight: fail fast, before spending anything on Refine/Implement ---
+// Answers "how do I know I need to log in?" — the pipeline tells you here,
+// immediately, instead of failing confusingly mid-Implement when it tries to
+// push or open a PR.
+
+const preflight = await phase('preflight', () =>
+  agent('Run "gh auth status" (and inspect its token-scopes output) via Bash. Report whether you are authenticated, whether the token has the "repo" scope, and whether it has the "workflow" scope.', {
+    schema: preflightSchema,
+    tools: ['Bash'],
+  }),
+)
+if (!preflight.authenticated || !preflight.hasRepoScope) {
+  return { error: `gh is not ready for this pipeline: ${preflight.message}. Run "gh auth login" (add "-s workflow" too if this story might touch .github/workflows/*), then re-run /claude-factory:deliver.` }
+}
+if (!preflight.hasWorkflowScope) {
+  log('Note: gh token lacks the "workflow" scope — fine unless this story touches .github/workflows/*, in which case the push will be rejected. Run "gh auth refresh -s workflow" if needed.')
+}
 
 // ---- stage 1 & 2: Refine ⇄ Challenge --------------------------------------
 

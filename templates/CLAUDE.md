@@ -97,6 +97,10 @@ to local/dev if the section is absent.
 | staging | e.g. `https://staging.example.com` | pre-promotion manual verification |
 | production | e.g. `https://example.com` | live — never targeted by the pipeline |
 
+If this project has a UI, add the Playwright MCP (see this plugin's README →
+"Optional MCP servers") so `qa-verifier` can screenshot and sanity-check it
+instead of only running scripted API/CLI checks.
+
 ## Conventions & gotchas
 
 <!-- codifier appends here after each promoted story. Empty until the first run. -->
