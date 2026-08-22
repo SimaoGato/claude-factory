@@ -13,6 +13,9 @@ Review for:
 - Tests: do they actually cover each AC? would they fail without the change?
 - Security (injection, authz, secrets in logs), error handling, edge cases.
 - Readability, naming, and consistency with existing conventions.
+- Comment discipline (per `code-comments`): flag comments that restate code,
+  tag story/AC numbers, cite "the plan"/"the story" instead of explaining
+  inline, or log a decision rather than a non-obvious why.
 - Performance only where it plausibly matters.
 
 Classify each finding:

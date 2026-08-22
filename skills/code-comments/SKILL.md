@@ -27,7 +27,11 @@ comment? If not, delete it.
   not belong in code — that traceability already has a home: the PR
   description's "Acceptance criteria → tests" section (see `pr-conventions`).
   Code outlives the story that produced it; a comment tying it to a ticket
-  number rots the moment someone reads it without that context.
+  number rots the moment someone reads it without that context. This includes
+  bare AC-number labels used as section headers (`# AC5: duration`) — same
+  problem in miniature: it duplicates the PR's AC→test mapping instead of
+  pointing to it, and rots the moment ACs get renumbered or split. Use a
+  descriptive label instead: `# duration check`.
 - **A decision log.** "We chose X over Y because..." belongs in
   `docs/adr/DECISIONS.md` or a standalone ADR, written by `codifier` — not
   scattered through the diff as inline commentary.
