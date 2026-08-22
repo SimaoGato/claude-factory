@@ -9,7 +9,7 @@
 // own workflow." See the same note in workflows/deliver.js and rework.js.
 //
 // NOTE on runtime API: see the header comment in workflows/deliver.js — the
-// same caveats about agentType/tools/schema options apply here.
+// same phase()/agent() usage rules apply here.
 
 export const meta = {
   name: 'promote',
@@ -85,29 +85,23 @@ if (!storyPath) {
   return { error: 'usage: /claude-factory:promote <path to story file>' }
 }
 
-const config = await phase('config', () =>
-  agent('Read the "## Pipeline config" fenced yaml block from CLAUDE.md at the project root and return it as structured data.', {
-    schema: pipelineConfigSchema,
-    tools: ['Read'],
-  }),
-)
+phase('config')
+const config = await agent('Read the "## Pipeline config" fenced yaml block from CLAUDE.md at the project root and return it as structured data.', {
+  schema: pipelineConfigSchema,
+})
 
-const preflight = await phase('preflight', () =>
-  agent('Run "gh auth status" (and inspect its token-scopes output) via Bash. Report whether you are authenticated, whether the token has the "repo" scope, and whether it has the "workflow" scope.', {
-    schema: preflightSchema,
-    tools: ['Bash'],
-  }),
-)
+phase('preflight')
+const preflight = await agent('Run "gh auth status" (and inspect its token-scopes output) via Bash. Report whether you are authenticated, whether the token has the "repo" scope, and whether it has the "workflow" scope.', {
+  schema: preflightSchema,
+})
 if (!preflight.authenticated || !preflight.hasRepoScope) {
   return { error: `gh is not ready for this pipeline: ${preflight.message}. Run "gh auth login", then re-run /claude-factory:promote.` }
 }
 
-const story = await phase('read-story', () =>
-  agent(`Read ${storyPath} frontmatter and return its id, pr number, and current status.`, {
-    schema: storyStateSchema,
-    tools: ['Read'],
-  }),
-)
+phase('read-story')
+const story = await agent(`Read ${storyPath} frontmatter and return its id, pr number, and current status.`, {
+  schema: storyStateSchema,
+})
 
 if (story.status !== 'in_review') {
   return { error: `${storyPath} has status "${story.status}", not "in_review" — nothing to promote. Run /claude-factory:deliver or /claude-factory:rework first.` }
@@ -128,33 +122,27 @@ const ciSchema = {
   },
 }
 
-const ci = await phase('verify-ci', () =>
-  agent(`Check current CI status on PR #${story.pr}: run "gh pr checks ${story.pr} --json name,state" (no --watch — just the current status) and report whether it's passing.`, {
-    schema: ciSchema,
-    tools: ['Bash'],
-  }),
-)
+phase('verify-ci')
+const ci = await agent(`Check current CI status on PR #${story.pr}: run "gh pr checks ${story.pr} --json name,state" (no --watch — just the current status) and report whether it's passing.`, {
+  schema: ciSchema,
+})
 if (!ci.passed) {
   return { error: `CI is not green on PR #${story.pr} anymore (${ci.failures.join('; ') || 'unknown failure'}) — something changed since it was marked in_review. Investigate, or run /claude-factory:rework instead of promoting on stale information.` }
 }
 
 // ---- codify (two-tier: decision log by default, ADR only above the bar) ---
 
-const codified = await phase('codify', () =>
-  agent(`Extract reusable learnings from delivering ${storyPath} (PR #${story.pr}). Per the codifier agent's instructions: update CLAUDE.md conventions if warranted, and append one dated bullet to docs/adr/DECISIONS.md. Only create a standalone docs/adr/ADR-<NNN>-<slug>.md if this decision is hard to reverse, crosses multiple modules/teams, or was a genuine judgment call among real alternatives — if you do, say exactly why in adrJustification.`, {
-    agentType: 'codifier',
-    schema: codifySchema,
-    model: config.models.codify,
-  }),
-)
+phase('codify')
+const codified = await agent(`Extract reusable learnings from delivering ${storyPath} (PR #${story.pr}). Per the codifier agent's instructions: update CLAUDE.md conventions if warranted, and append one dated bullet to docs/adr/DECISIONS.md. Only create a standalone docs/adr/ADR-<NNN>-<slug>.md if this decision is hard to reverse, crosses multiple modules/teams, or was a genuine judgment call among real alternatives — if you do, say exactly why in adrJustification.`, {
+  agentType: 'codifier',
+  schema: codifySchema,
+  model: config.models.codify,
+})
 
 // ---- promote: undraft PR (never merge), archive story ---------------------
 
-await phase('promote', () =>
-  agent(`Mark PR #${story.pr} ready for review (undraft it, e.g. "gh pr ready ${story.pr}"). Do NOT merge, close, or auto-merge it under any circumstances — a human merges it. Then in ${storyPath}, set frontmatter "status: done", git mv the file into docs/stories/done/, and commit that change.`, {
-    tools: ['Bash', 'Read', 'Write'],
-  }),
-)
+phase('promote')
+await agent(`Mark PR #${story.pr} ready for review (undraft it, e.g. "gh pr ready ${story.pr}"). Do NOT merge, close, or auto-merge it under any circumstances — a human merges it. Then in ${storyPath}, set frontmatter "status: done", git mv the file into docs/stories/done/, and commit that change.`)
 
 log(`Promoted ${storyPath}: PR #${story.pr} is now ready for human review/merge.${codified.adrCreated ? ` New ADR: ${codified.adrPath}` : ''}`)
 

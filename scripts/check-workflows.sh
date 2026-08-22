@@ -3,8 +3,20 @@
 #   1. JS syntax — the workflow runtime's top-level `return`/`await` aren't
 #      valid to a plain `node --check`, so we stub the runtime globals
 #      (agent/pipeline/parallel/phase/log/args) and wrap the body in an async
-#      function before checking it.
-#   2. Drift between the two hand-copied STABILIZE-LOOP blocks in
+#      function before checking it. The stub shapes below MUST match the
+#      real runtime's signatures (phase(title) is void, agent() takes no
+#      `tools` option) — a stub that's wrong the same way a script is wrong
+#      makes this check pass on a broken script. That's exactly what
+#      happened before: phase(name, callback) parsed fine here and then blew
+#      up for real as "config.retry_budget" on undefined, because the stub
+#      quietly invoked the callback instead of rejecting the extra argument.
+#   2. API misuse — every workflow author so far has independently guessed
+#      `phase(title, callback)` instead of `phase(title); await agent(...)`,
+#      and `tools: [...]` as an agent() option (not part of the real API —
+#      an agent's tools come from its agentType's definition, or all tools
+#      with none). Static grep since the syntax check above can't catch
+#      call-shape mistakes, only parse errors.
+#   3. Drift between the two hand-copied STABILIZE-LOOP blocks in
 #      deliver.js and rework.js (see the comment at each block's start —
 #      the workflow runtime disallows import(), so this loop can't be a
 #      shared module; this script is what actually enforces they stay in sync
@@ -23,7 +35,7 @@ for f in deliver promote rework; do
   src="$WORKFLOWS_DIR/$f.js"
   check_file="$TMP_DIR/${f}_check.mjs"
   {
-    echo "const agent=async()=>{}; const pipeline=async()=>{}; const parallel=async()=>{}; const phase=(n,fn)=>fn(); const log=()=>{}; let args={};"
+    echo "const agent=async()=>{}; const pipeline=async(items,fn)=>Promise.all(items.map(fn)); const parallel=async(thunks)=>Promise.all(thunks.map(t=>t())); const phase=(title)=>{}; const log=()=>{}; let args={};"
     echo "async function __wrap(){"
     awk '/^export const meta = \{/{skip=1} skip{if(/^}/){skip=0}; next} {print}' "$src"
     echo "}"
@@ -36,6 +48,23 @@ for f in deliver promote rework; do
     fail=1
   fi
 done
+
+echo ""
+echo "== phase()/agent() API usage check =="
+for f in deliver promote rework; do
+  src="$WORKFLOWS_DIR/$f.js"
+  if grep -nE "phase\(['\"][^'\"]*['\"]\s*,\s*(async\s*)?\(" "$src"; then
+    echo "FAIL: $src calls phase(title, callback) — phase() only takes a title and returns nothing; call it, then separately \`await agent(...)\`/\`await pipeline(...)\`"
+    fail=1
+  fi
+  if grep -nE "^\s*tools:\s*\[" "$src"; then
+    echo "FAIL: $src passes a \`tools:\` option to agent() — that's not part of the real API (an agent's tools come from its agentType's definition, or all tools with none); remove it"
+    fail=1
+  fi
+done
+if [ "$fail" -eq 0 ]; then
+  echo "OK: no phase(title, callback) or tools: misuse found"
+fi
 
 echo ""
 echo "== stabilize-loop drift check (deliver.js vs rework.js) =="

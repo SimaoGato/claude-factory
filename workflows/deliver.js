@@ -10,13 +10,12 @@
 //
 // NOTE on runtime API: this targets Claude Code's documented dynamic-workflow
 // primitives (agent, pipeline, parallel, phase, log, exported `meta`, global
-// `args`) and the documented `schema`/`label`/`model` options on agent(). The
-// `agentType` and `tools` options below assume agent() can route a call
-// through one of this plugin's existing `agents/*.md` definitions (by their
-// frontmatter `name:`) the same way the Task tool does, and can restrict
-// tools per one-off call. Validate both against the installed Claude Code
-// version (`use a workflow` on a small slice first) before relying on this in
-// production, and adjust the option names if the runtime differs.
+// `args`) and the documented `schema`/`label`/`model` options on agent().
+// `phase(title)` only sets a progress-group label — it does NOT take a
+// callback and does NOT return a value; call it, then separately
+// `await agent(...)`. There is no `tools` option on agent() — an agent gets
+// whichever tools its `agentType`'s definition grants (or all tools, with no
+// agentType). scripts/check-workflows.sh statically enforces both of these.
 
 export const meta = {
   name: 'deliver',
@@ -150,12 +149,10 @@ function escalate(reason, extra) {
 
 // ---- stage 0: load config (single source of truth, no hardcoded budgets) --
 
-const config = await phase('config', () =>
-  agent('Read the "## Pipeline config" fenced yaml block from CLAUDE.md at the project root and return it as structured data.', {
-    schema: pipelineConfigSchema,
-    tools: ['Read'],
-  }),
-)
+phase('config')
+const config = await agent('Read the "## Pipeline config" fenced yaml block from CLAUDE.md at the project root and return it as structured data.', {
+  schema: pipelineConfigSchema,
+})
 const retryBudget = config.retry_budget
 
 // ---- preflight: fail fast, before spending anything on Refine/Implement ---
@@ -163,12 +160,10 @@ const retryBudget = config.retry_budget
 // here, immediately, instead of failing confusingly mid-Implement when it tries
 // to branch, push, or open a PR.
 
-const preflight = await phase('preflight', () =>
-  agent('Via Bash, run each of these and report the outcome: "git rev-parse --is-inside-work-tree" (insideRepo), "git rev-parse HEAD" (hasCommits), "git remote get-url origin" (hasOrigin), and "gh auth status" with its token-scopes output (authenticated, plus whether the token has the "repo" and "workflow" scopes). Do not create, commit, or push anything — this is a read-only check.', {
-    schema: preflightSchema,
-    tools: ['Bash'],
-  }),
-)
+phase('preflight')
+const preflight = await agent('Via Bash, run each of these and report the outcome: "git rev-parse --is-inside-work-tree" (insideRepo), "git rev-parse HEAD" (hasCommits), "git remote get-url origin" (hasOrigin), and "gh auth status" with its token-scopes output (authenticated, plus whether the token has the "repo" and "workflow" scopes). Do not create, commit, or push anything — this is a read-only check.', {
+  schema: preflightSchema,
+})
 // Repo first: no work tree / no commits / no remote is a more fundamental block
 // than a missing gh scope, and the fix is a different command.
 if (!preflight.insideRepo || !preflight.hasCommits) {
@@ -186,56 +181,51 @@ if (!preflight.hasWorkflowScope) {
 
 // ---- stage 1 & 2: Refine ⇄ Challenge --------------------------------------
 
-let plan = await phase('refine', () =>
-  agent(`Refine story ${storyPath}${extraContext ? ` — extra context: ${extraContext}` : ''}. Read the story and its acceptance criteria, explore the codebase for relevant patterns, and write an Implementation Plan into the story file per the story-refiner agent's instructions.`, {
-    agentType: 'story-refiner',
-    schema: planSchema,
-    model: config.models.refine,
-  }),
-)
+phase('refine')
+let plan = await agent(`Refine story ${storyPath}${extraContext ? ` — extra context: ${extraContext}` : ''}. Read the story and its acceptance criteria, explore the codebase for relevant patterns, and write an Implementation Plan into the story file per the story-refiner agent's instructions.`, {
+  agentType: 'story-refiner',
+  schema: planSchema,
+  model: config.models.refine,
+})
 if (plan.blockingQuestions?.length) {
   return escalate('story-refiner raised blocking questions', { questions: plan.blockingQuestions })
 }
 
 let approved = false
 for (let i = 0; i < retryBudget; i++) {
-  const verdict = await phase('challenge', () =>
-    agent(`Challenge the current Implementation Plan in ${storyPath} against its acceptance criteria and the scope firewall.`, {
-      agentType: 'challenger',
-      schema: verdictSchema,
-      model: config.models.challenge,
-    }),
-  )
+  phase('challenge')
+  const verdict = await agent(`Challenge the current Implementation Plan in ${storyPath} against its acceptance criteria and the scope firewall.`, {
+    agentType: 'challenger',
+    schema: verdictSchema,
+    model: config.models.challenge,
+  })
   if (verdict.approved) { approved = true; break }
   log(`Challenge cycle ${i + 1}/${retryBudget}: NEEDS REVISION — ${verdict.critical.join('; ')}`)
-  plan = await phase('refine', () =>
-    agent(`Revise the Implementation Plan in ${storyPath} to address these CRITICAL findings: ${verdict.critical.join('; ')}`, {
-      agentType: 'story-refiner',
-      schema: planSchema,
-      model: config.models.refine,
-    }),
-  )
+  phase('refine')
+  plan = await agent(`Revise the Implementation Plan in ${storyPath} to address these CRITICAL findings: ${verdict.critical.join('; ')}`, {
+    agentType: 'story-refiner',
+    schema: planSchema,
+    model: config.models.refine,
+  })
 }
 if (!approved) return escalate('challenge/refine retry budget exhausted', { plan })
 
 // ---- stage 3: Implement -----------------------------------------------
 
-let impl = await phase('implement', () =>
-  agent(`Implement the approved plan in ${storyPath} on a new branch and open a draft PR, per the implementer${plan.complexity === 'trivial' ? '-light' : ''} agent's instructions.`, {
-    agentType: plan.complexity === 'trivial' ? 'implementer-light' : 'implementer',
-    schema: implSchema,
-    model: plan.complexity === 'trivial' ? config.models.implement_light : config.models.implement,
-  }),
-)
+phase('implement')
+let impl = await agent(`Implement the approved plan in ${storyPath} on a new branch and open a draft PR, per the implementer${plan.complexity === 'trivial' ? '-light' : ''} agent's instructions.`, {
+  agentType: plan.complexity === 'trivial' ? 'implementer-light' : 'implementer',
+  schema: implSchema,
+  model: plan.complexity === 'trivial' ? config.models.implement_light : config.models.implement,
+})
 if (impl.escalated) {
   log(`implementer-light escalated: ${impl.escalationReason} — falling back to the standard implementer.`)
-  impl = await phase('implement', () =>
-    agent(`Implement the approved plan in ${storyPath} on a new branch and open a draft PR. (Escalated from implementer-light: ${impl.escalationReason})`, {
-      agentType: 'implementer',
-      schema: implSchema,
-      model: config.models.implement,
-    }),
-  )
+  phase('implement')
+  impl = await agent(`Implement the approved plan in ${storyPath} on a new branch and open a draft PR. (Escalated from implementer-light: ${impl.escalationReason})`, {
+    agentType: 'implementer',
+    schema: implSchema,
+    model: config.models.implement,
+  })
 }
 if (!impl.testsGreen) return escalate('implementation left tests red', { impl })
 
@@ -256,62 +246,55 @@ let ciPassed = false
 // If you edit this loop, make the same edit in both files.
 // STABILIZE-LOOP-START
 while (cycle < retryBudget) {
-  const reviews = await phase('review', () =>
-    pipeline(areas, area =>
-      agent(`Review PR #${prNumber} (branch ${branch}), area: ${area}. Only review files in that area's diff.`, {
-        agentType: 'code-reviewer',
-        schema: reviewSchema,
-        model: config.models.review,
-        label: area,
-      }),
-    ),
+  phase('review')
+  const reviews = await pipeline(areas, area =>
+    agent(`Review PR #${prNumber} (branch ${branch}), area: ${area}. Only review files in that area's diff.`, {
+      agentType: 'code-reviewer',
+      schema: reviewSchema,
+      model: config.models.review,
+      label: area,
+    }),
   )
   const critical = reviews.filter(Boolean).flatMap(r => r.critical)
   const warnings = reviews.filter(Boolean).flatMap(r => r.warnings)
 
   if (critical.length === 0 && warnings.length === 0) {
-    const qa = await phase('qa', () =>
-      agent(`QA-verify PR #${prNumber} against the acceptance criteria in ${storyPath}.`, {
-        agentType: 'qa-verifier',
-        schema: qaSchema,
-        model: config.models.qa,
-      }),
-    )
+    phase('qa')
+    const qa = await agent(`QA-verify PR #${prNumber} against the acceptance criteria in ${storyPath}.`, {
+      agentType: 'qa-verifier',
+      schema: qaSchema,
+      model: config.models.qa,
+    })
     if (qa.passed) {
-      const ci = await phase('ci', () =>
-        agent(`Wait for CI on PR #${prNumber}: run "${config.ci.watch_command.replace('{pr_number}', prNumber)}" and report the final state. Do not merge or close the PR.`, {
-          schema: ciSchema,
-          tools: ['Bash'],
-        }),
-      )
+      phase('ci')
+      const ci = await agent(`Wait for CI on PR #${prNumber}: run "${config.ci.watch_command.replace('{pr_number}', prNumber)}" and report the final state. Do not merge or close the PR.`, {
+        schema: ciSchema,
+      })
       if (ci.passed) { ciPassed = true; break }
       log(`CI cycle ${cycle + 1}/${retryBudget}: FAILED — ${ci.failures.join('; ')}`)
-      await phase('rework', () =>
-        agent(`Fix these CI failures on PR #${prNumber} (branch ${branch}): ${ci.failures.join('; ')}`, {
-          agentType: 'reworker',
-          schema: reworkSchema,
-          model: config.models.rework,
-        }),
-      )
-    } else {
-      log(`QA cycle ${cycle + 1}/${retryBudget}: FAILED — ${qa.bugReport}`)
-      await phase('rework', () =>
-        agent(`Fix this QA-reported bug on PR #${prNumber} (branch ${branch}): ${qa.bugReport}`, {
-          agentType: 'reworker',
-          schema: reworkSchema,
-          model: config.models.rework,
-        }),
-      )
-    }
-  } else {
-    log(`Review cycle ${cycle + 1}/${retryBudget}: ${critical.length} critical, ${warnings.length} warning`)
-    await phase('rework', () =>
-      agent(`Fix these review findings on PR #${prNumber} (branch ${branch}). CRITICAL: ${critical.join('; ') || 'none'}. WARNING: ${warnings.join('; ') || 'none'}.`, {
+      phase('rework')
+      await agent(`Fix these CI failures on PR #${prNumber} (branch ${branch}): ${ci.failures.join('; ')}`, {
         agentType: 'reworker',
         schema: reworkSchema,
         model: config.models.rework,
-      }),
-    )
+      })
+    } else {
+      log(`QA cycle ${cycle + 1}/${retryBudget}: FAILED — ${qa.bugReport}`)
+      phase('rework')
+      await agent(`Fix this QA-reported bug on PR #${prNumber} (branch ${branch}): ${qa.bugReport}`, {
+        agentType: 'reworker',
+        schema: reworkSchema,
+        model: config.models.rework,
+      })
+    }
+  } else {
+    log(`Review cycle ${cycle + 1}/${retryBudget}: ${critical.length} critical, ${warnings.length} warning`)
+    phase('rework')
+    await agent(`Fix these review findings on PR #${prNumber} (branch ${branch}). CRITICAL: ${critical.join('; ') || 'none'}. WARNING: ${warnings.join('; ') || 'none'}.`, {
+      agentType: 'reworker',
+      schema: reworkSchema,
+      model: config.models.rework,
+    })
   }
   cycle++
 }
@@ -324,11 +307,8 @@ if (!ciPassed) return escalate('review/QA/CI retry budget exhausted', { pr: prNu
 // script for that sign-off (see the note at the top of promote.js), so the
 // gate has to be a separate, human-triggered workflow.
 
-await phase('hand-off', () =>
-  agent(`In ${storyPath}, set frontmatter "status: in_review" and "pr: ${prNumber}". Post a comment on PR #${prNumber} with exactly this structure (fill in the blanks): "## Ready for manual verification\\n\\n**Branch:** ${branch}\\n\\n**How to test locally:** <fill in — pull the branch and the commands to run it>\\n\\nOnce verified, run /claude-factory:promote or /claude-factory:rework with a reason.". Do NOT undraft, merge, or close the PR.`, {
-    tools: ['Bash', 'Read', 'Write'],
-  }),
-)
+phase('hand-off')
+await agent(`In ${storyPath}, set frontmatter "status: in_review" and "pr: ${prNumber}". Post a comment on PR #${prNumber} with exactly this structure (fill in the blanks): "## Ready for manual verification\\n\\n**Branch:** ${branch}\\n\\n**How to test locally:** <fill in — pull the branch and the commands to run it>\\n\\nOnce verified, run /claude-factory:promote or /claude-factory:rework with a reason.". Do NOT undraft, merge, or close the PR.`)
 
 const nextSteps = `Manually verify PR #${prNumber}, then run /claude-factory:promote ${storyPath} (approve) or /claude-factory:rework ${storyPath} "<issue>" (reject with a reason).`
 log(`${storyPath} is in_review: PR #${prNumber} (${impl.prUrl}) — CI green, still draft. ${nextSteps}`)
