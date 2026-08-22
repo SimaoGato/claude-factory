@@ -14,9 +14,15 @@ jobs:
         with:
           node-version: "20"
 
+      # Pinned, not @latest: unpinned installed a version in a prior CI run
+      # that reported "Validating plugin manifest: .../agents" (the same
+      # wording used for a manifest *file*) instead of "Validating
+      # components in: .../agents" like the version below does — i.e. it
+      # looks like an older release without directory-component validation.
+      # Bump this deliberately when you want a newer CLI, not by accident.
       - name: Install Claude Code CLI
         run: |
-          npm install -g @anthropic-ai/claude-code
+          npm install -g @anthropic-ai/claude-code@2.1.240
           claude --version
 
       - name: Validate plugin manifest
