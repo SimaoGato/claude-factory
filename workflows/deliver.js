@@ -183,7 +183,7 @@ if (!preflight.hasWorkflowScope) {
 
 phase('refine')
 let plan = await agent(`Refine story ${storyPath}${extraContext ? ` — extra context: ${extraContext}` : ''}. Read the story and its acceptance criteria, explore the codebase for relevant patterns, and write an Implementation Plan into the story file per the story-refiner agent's instructions.`, {
-  agentType: 'story-refiner',
+  agentType: 'claude-factory:story-refiner',
   schema: planSchema,
   model: config.models.refine,
 })
@@ -195,7 +195,7 @@ let approved = false
 for (let i = 0; i < retryBudget; i++) {
   phase('challenge')
   const verdict = await agent(`Challenge the current Implementation Plan in ${storyPath} against its acceptance criteria and the scope firewall.`, {
-    agentType: 'challenger',
+    agentType: 'claude-factory:challenger',
     schema: verdictSchema,
     model: config.models.challenge,
   })
@@ -203,7 +203,7 @@ for (let i = 0; i < retryBudget; i++) {
   log(`Challenge cycle ${i + 1}/${retryBudget}: NEEDS REVISION — ${verdict.critical.join('; ')}`)
   phase('refine')
   plan = await agent(`Revise the Implementation Plan in ${storyPath} to address these CRITICAL findings: ${verdict.critical.join('; ')}`, {
-    agentType: 'story-refiner',
+    agentType: 'claude-factory:story-refiner',
     schema: planSchema,
     model: config.models.refine,
   })
@@ -214,7 +214,7 @@ if (!approved) return escalate('challenge/refine retry budget exhausted', { plan
 
 phase('implement')
 let impl = await agent(`Implement the approved plan in ${storyPath} on a new branch and open a draft PR, per the implementer${plan.complexity === 'trivial' ? '-light' : ''} agent's instructions.`, {
-  agentType: plan.complexity === 'trivial' ? 'implementer-light' : 'implementer',
+  agentType: plan.complexity === 'trivial' ? 'claude-factory:implementer-light' : 'claude-factory:implementer',
   schema: implSchema,
   model: plan.complexity === 'trivial' ? config.models.implement_light : config.models.implement,
 })
@@ -222,7 +222,7 @@ if (impl.escalated) {
   log(`implementer-light escalated: ${impl.escalationReason} — falling back to the standard implementer.`)
   phase('implement')
   impl = await agent(`Implement the approved plan in ${storyPath} on a new branch and open a draft PR. (Escalated from implementer-light: ${impl.escalationReason})`, {
-    agentType: 'implementer',
+    agentType: 'claude-factory:implementer',
     schema: implSchema,
     model: config.models.implement,
   })
@@ -249,7 +249,7 @@ while (cycle < retryBudget) {
   phase('review')
   const reviews = await pipeline(areas, area =>
     agent(`Review PR #${prNumber} (branch ${branch}), area: ${area}. Only review files in that area's diff.`, {
-      agentType: 'code-reviewer',
+      agentType: 'claude-factory:code-reviewer',
       schema: reviewSchema,
       model: config.models.review,
       label: area,
@@ -261,7 +261,7 @@ while (cycle < retryBudget) {
   if (critical.length === 0 && warnings.length === 0) {
     phase('qa')
     const qa = await agent(`QA-verify PR #${prNumber} against the acceptance criteria in ${storyPath}.`, {
-      agentType: 'qa-verifier',
+      agentType: 'claude-factory:qa-verifier',
       schema: qaSchema,
       model: config.models.qa,
     })
@@ -274,7 +274,7 @@ while (cycle < retryBudget) {
       log(`CI cycle ${cycle + 1}/${retryBudget}: FAILED — ${ci.failures.join('; ')}`)
       phase('rework')
       await agent(`Fix these CI failures on PR #${prNumber} (branch ${branch}): ${ci.failures.join('; ')}`, {
-        agentType: 'reworker',
+        agentType: 'claude-factory:reworker',
         schema: reworkSchema,
         model: config.models.rework,
       })
@@ -282,7 +282,7 @@ while (cycle < retryBudget) {
       log(`QA cycle ${cycle + 1}/${retryBudget}: FAILED — ${qa.bugReport}`)
       phase('rework')
       await agent(`Fix this QA-reported bug on PR #${prNumber} (branch ${branch}): ${qa.bugReport}`, {
-        agentType: 'reworker',
+        agentType: 'claude-factory:reworker',
         schema: reworkSchema,
         model: config.models.rework,
       })
@@ -291,7 +291,7 @@ while (cycle < retryBudget) {
     log(`Review cycle ${cycle + 1}/${retryBudget}: ${critical.length} critical, ${warnings.length} warning`)
     phase('rework')
     await agent(`Fix these review findings on PR #${prNumber} (branch ${branch}). CRITICAL: ${critical.join('; ') || 'none'}. WARNING: ${warnings.join('; ') || 'none'}.`, {
-      agentType: 'reworker',
+      agentType: 'claude-factory:reworker',
       schema: reworkSchema,
       model: config.models.rework,
     })

@@ -16,7 +16,15 @@
 #      an agent's tools come from its agentType's definition, or all tools
 #      with none). Static grep since the syntax check above can't catch
 #      call-shape mistakes, only parse errors.
-#   3. Drift between the two hand-copied STABILIZE-LOOP blocks in
+#   3. agentType validity — every `agentType:` value shipped without the
+#      plugin's own namespace prefix (e.g. `'story-refiner'` instead of
+#      `'claude-factory:story-refiner'`), which crashed a live `deliver` run
+#      with "agent type 'story-refiner' not found" the same day the
+#      phase()/tools misuse above was fixed. Cross-checks every agentType
+#      literal against the plugin name in .claude-plugin/plugin.json plus
+#      the real `agents/*.md` frontmatter — catches both a missing prefix
+#      and a typo'd agent name.
+#   4. Drift between the two hand-copied STABILIZE-LOOP blocks in
 #      deliver.js and rework.js (see the comment at each block's start —
 #      the workflow runtime disallows import(), so this loop can't be a
 #      shared module; this script is what actually enforces they stay in sync
@@ -64,6 +72,45 @@ for f in deliver promote rework; do
 done
 if [ "$fail" -eq 0 ]; then
   echo "OK: no phase(title, callback) or tools: misuse found"
+fi
+
+echo ""
+echo "== agentType validity check =="
+PLUGIN_NAME=$(grep -m1 '"name"' .claude-plugin/plugin.json | sed -E 's/.*"name": *"([^"]+)".*/\1/')
+BASENAMES=""
+for af in agents/*.md; do
+  name=$(sed -nE 's/^name: *(.+)$/\1/p' "$af" | head -1)
+  BASENAMES="$BASENAMES $name"
+done
+
+agent_type_fail=0
+for f in deliver promote rework; do
+  src="$WORKFLOWS_DIR/$f.js"
+  # bare (unprefixed) agent name used as agentType — the exact mistake that
+  # crashed a live run. A quoted-name match here can't accidentally hit the
+  # prefixed form: 'claude-factory:story-refiner' has no `'` right before
+  # "story-refiner" (it's `:`), so `'story-refiner'` only matches the bare form.
+  for name in $BASENAMES; do
+    if grep -nE "agentType:.*'$name'" "$src"; then
+      echo "FAIL: $src uses agentType '$name' without the required '$PLUGIN_NAME:' prefix"
+      agent_type_fail=1
+    fi
+  done
+  # prefixed agentType values that don't match any real agents/*.md (typo)
+  for lit in $(grep "agentType:" "$src" | grep -oE "'$PLUGIN_NAME:[a-zA-Z0-9-]+'" | tr -d "'"); do
+    base="${lit#$PLUGIN_NAME:}"
+    known=0
+    for name in $BASENAMES; do [ "$name" = "$base" ] && known=1 && break; done
+    if [ "$known" -eq 0 ]; then
+      echo "FAIL: $src uses agentType '$lit' — no agents/$base.md exists"
+      agent_type_fail=1
+    fi
+  done
+done
+if [ "$agent_type_fail" -eq 0 ]; then
+  echo "OK: every agentType is '$PLUGIN_NAME:'-prefixed and matches a real agent"
+else
+  fail=1
 fi
 
 echo ""

@@ -143,7 +143,7 @@ if (story.status !== 'in_review') {
 
 phase('rework')
 await agent(`Fix this manually-reported issue on PR #${story.pr} (branch ${story.branch}): ${issue}`, {
-  agentType: 'reworker',
+  agentType: 'claude-factory:reworker',
   schema: reworkSchema,
   model: config.models.rework,
 })
@@ -165,7 +165,7 @@ while (cycle < retryBudget) {
   phase('review')
   const reviews = await pipeline(areas, area =>
     agent(`Review PR #${prNumber} (branch ${branch}), area: ${area}. Only review files in that area's diff.`, {
-      agentType: 'code-reviewer',
+      agentType: 'claude-factory:code-reviewer',
       schema: reviewSchema,
       model: config.models.review,
       label: area,
@@ -177,7 +177,7 @@ while (cycle < retryBudget) {
   if (critical.length === 0 && warnings.length === 0) {
     phase('qa')
     const qa = await agent(`QA-verify PR #${prNumber} against the acceptance criteria in ${storyPath}.`, {
-      agentType: 'qa-verifier',
+      agentType: 'claude-factory:qa-verifier',
       schema: qaSchema,
       model: config.models.qa,
     })
@@ -190,7 +190,7 @@ while (cycle < retryBudget) {
       log(`CI cycle ${cycle + 1}/${retryBudget}: FAILED — ${ci.failures.join('; ')}`)
       phase('rework')
       await agent(`Fix these CI failures on PR #${prNumber} (branch ${branch}): ${ci.failures.join('; ')}`, {
-        agentType: 'reworker',
+        agentType: 'claude-factory:reworker',
         schema: reworkSchema,
         model: config.models.rework,
       })
@@ -198,7 +198,7 @@ while (cycle < retryBudget) {
       log(`QA cycle ${cycle + 1}/${retryBudget}: FAILED — ${qa.bugReport}`)
       phase('rework')
       await agent(`Fix this QA-reported bug on PR #${prNumber} (branch ${branch}): ${qa.bugReport}`, {
-        agentType: 'reworker',
+        agentType: 'claude-factory:reworker',
         schema: reworkSchema,
         model: config.models.rework,
       })
@@ -207,7 +207,7 @@ while (cycle < retryBudget) {
     log(`Review cycle ${cycle + 1}/${retryBudget}: ${critical.length} critical, ${warnings.length} warning`)
     phase('rework')
     await agent(`Fix these review findings on PR #${prNumber} (branch ${branch}). CRITICAL: ${critical.join('; ') || 'none'}. WARNING: ${warnings.join('; ') || 'none'}.`, {
-      agentType: 'reworker',
+      agentType: 'claude-factory:reworker',
       schema: reworkSchema,
       model: config.models.rework,
     })

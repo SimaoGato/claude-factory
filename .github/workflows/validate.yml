@@ -56,6 +56,9 @@ jobs:
       - name: Check workflow scripts (syntax + stabilize-loop drift)
         run: ./scripts/check-workflows.sh
 
+      - name: Smoke-test workflow scripts (execution)
+        run: node scripts/smoke-test-workflows.mjs
+
       - name: Check plugin version bump
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}

@@ -134,7 +134,7 @@ if (!ci.passed) {
 
 phase('codify')
 const codified = await agent(`Extract reusable learnings from delivering ${storyPath} (PR #${story.pr}). Per the codifier agent's instructions: update CLAUDE.md conventions if warranted, and append one dated bullet to docs/adr/DECISIONS.md. Only create a standalone docs/adr/ADR-<NNN>-<slug>.md if this decision is hard to reverse, crosses multiple modules/teams, or was a genuine judgment call among real alternatives — if you do, say exactly why in adrJustification.`, {
-  agentType: 'codifier',
+  agentType: 'claude-factory:codifier',
   schema: codifySchema,
   model: config.models.codify,
 })
