@@ -142,7 +142,7 @@ const codified = await agent(`Extract reusable learnings from delivering ${story
 // ---- promote: undraft PR (never merge), archive story ---------------------
 
 phase('promote')
-await agent(`Mark PR #${story.pr} ready for review (undraft it, e.g. "gh pr ready ${story.pr}"). Do NOT merge, close, or auto-merge it under any circumstances — a human merges it. Then in ${storyPath}, set frontmatter "status: done", git mv the file into docs/stories/done/, and commit that change.`)
+await agent(`In ${storyPath}, set frontmatter "status: done", git mv the file into docs/stories/done/, commit that change, and push it to the PR's branch (the story move must land on the remote branch BEFORE the PR is marked ready, otherwise a human merging right away will merge without it). Only after the push succeeds, mark PR #${story.pr} ready for review (undraft it, e.g. "gh pr ready ${story.pr}"). Do NOT merge, close, or auto-merge it under any circumstances — a human merges it.`)
 
 log(`Promoted ${storyPath}: PR #${story.pr} is now ready for human review/merge.${codified.adrCreated ? ` New ADR: ${codified.adrPath}` : ''}`)
 

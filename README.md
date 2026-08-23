@@ -86,7 +86,7 @@ that's what you want.
 ## Install
 
 ```
-/plugin marketplace add <your-github-user>/claude-factory
+/plugin marketplace add SimaoGato/claude-factory
 /plugin install claude-factory@claude-factory
 ```
 
