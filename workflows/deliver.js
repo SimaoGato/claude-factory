@@ -162,6 +162,30 @@ if (!setup.hasCI && setup.ci_required !== false) {
   return { error: 'No CI in .github/workflows/, so "CI is green" can never be satisfied. Add a CI workflow that runs build + tests, or opt out with "ci_required: false" in .claude/factory.yml — then re-run.' }
 }
 
+// ---- Branch: leave whatever branch the user is on, start from latest main -----
+// The user may still be on an older story's branch; Refine must read current
+// code and its plan edit must land on this story's branch, so sync first.
+
+phase('branch')
+const sync = await agent(`Put the repo on this story's branch, based on latest main. Via Bash:
+1. Read the story id from ${storyPath}'s frontmatter; slug = short kebab-case of its title. Note the current branch.
+2. "git status --porcelain". Modified/staged tracked files outside docs/ → change nothing, set ok=false and list them in message (they are the user's unfinished work; never stash, discard, or commit them). Untracked files and docs/ edits are fine: git carries them across checkouts.
+3. "git fetch origin". A branch "story/<id>-*" already exists (local or origin) → this is a re-run: check it out, "git pull" if it has an upstream, then "git merge --no-edit origin/main" (conflict → "git merge --abort", ok=false, explain).
+   Otherwise: "git checkout main && git pull --ff-only origin main && git checkout -b story/<id>-<slug>".
+4. ${storyPath} missing now (it was committed only on the previous branch) → "git checkout <previous branch> -- ${storyPath}".
+Never push, reset, or delete branches. Report branch ("git branch --show-current"), ok, message.`, {
+  schema: {
+    type: 'object',
+    required: ['ok', 'branch', 'message'],
+    properties: { ok: { type: 'boolean' }, branch: { type: 'string' }, message: { type: 'string' } },
+  },
+  model: UTILITY_MODEL,
+})
+if (!sync.ok) {
+  return { error: `Could not switch to a fresh story branch from latest main: ${sync.message}. Commit or stash those changes, then re-run.` }
+}
+const storyBranch = sync.branch
+
 // ---- Refine ⇄ Challenge -----------------------------------------------------
 
 const refine = prompt => agent(prompt, {
@@ -171,7 +195,7 @@ const refine = prompt => agent(prompt, {
 })
 
 phase('refine')
-let plan = await refine(`Refine story ${storyPath}${extraContext ? ` — extra context: ${extraContext}` : ''}: write its Implementation Plan.`)
+let plan = await refine(`Refine story ${storyPath} on branch ${storyBranch} (already checked out from latest main; stay on it)${extraContext ? ` — extra context: ${extraContext}` : ''}: write its Implementation Plan.`)
 
 for (let cycle = 0; ; cycle++) {
   if (plan.blockingQuestions?.length) {
@@ -196,7 +220,7 @@ for (let cycle = 0; ; cycle++) {
 // ---- Implement ----------------------------------------------------------------
 
 const trivial = plan.complexity === 'trivial'
-const implement = (light, note) => agent(`Implement the approved plan in ${storyPath} and open a draft PR.${note || ''}`, {
+const implement = (light, note) => agent(`Implement the approved plan in ${storyPath} on branch ${storyBranch} (already checked out from latest main) and open a draft PR.${note || ''}`, {
   agentType: light ? 'claude-factory:implementer-light' : 'claude-factory:implementer',
   schema: implSchema,
   model: light ? models.implement_light : models.implement,

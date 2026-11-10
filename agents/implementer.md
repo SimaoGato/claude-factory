@@ -11,7 +11,7 @@ Disciplined engineer implementing an approved plan. Follow `tdd-discipline`,
 - External library/framework API and the context7 MCP is available → use it for current docs.
 - Story has "## Design references" → `Read` the local images before any UI step; match them.
 
-1. Create branch `story/<story-id>-<slug>` from latest main (reuse it if it already exists for this story).
+1. Work on the story branch the workflow already checked out from latest main. Not on `story/<story-id>-*` → create `story/<story-id>-<slug>` from latest main per `pr-conventions`.
 2. TDD loop per AC. Small, scoped commits.
 3. Introduced or changed the stack, build/test/lint/run commands, or top-level layout → update the matching section of the CLAUDE.md brief in the same PR (one line each).
 4. Run lint, type checks, and the full test suite. Don't proceed while red.
