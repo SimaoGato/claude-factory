@@ -30,7 +30,7 @@ for bugs in a still-open PR); `/status-glance` lists every story's status.
 
 ## Definition of Done
 Every AC has a test that failed before the change · lint, types, full suite
-green · no open CRITICAL/WARNING review findings · QA PASS per AC with evidence ·
+green · no open CRITICAL review findings (WARNINGs fixed once, leftovers listed for you) · QA PASS per AC with evidence ·
 CI green · a human verified the PR and ran `promote`. Merging stays with you.
 
 ## Prerequisites

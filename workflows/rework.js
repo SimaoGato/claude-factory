@@ -148,6 +148,7 @@ let ciPassed = false, ciSkipped = false, escalateReason = null
 // Kept byte-identical to the block in deliver.js (no import() in workflows);
 // scripts/check-workflows.sh fails CI if they drift.
 // STABILIZE-LOOP-START
+let warningsFixed = false, openWarnings = []
 while (true) {
   phase('review')
   const reviews = await pipeline(areas, area =>
@@ -161,7 +162,7 @@ while (true) {
   const critical = reviews.filter(Boolean).flatMap(r => r.critical)
   const warnings = reviews.filter(Boolean).flatMap(r => r.warnings)
 
-  if (critical.length > 0 || warnings.length > 0) {
+  if (critical.length > 0) {
     if (reviewCycle >= retryBudget) { escalateReason = 'review retry budget exhausted'; break }
     log(`Review cycle ${reviewCycle + 1}/${retryBudget}: ${critical.length} critical, ${warnings.length} warning`)
     phase('rework')
@@ -172,6 +173,22 @@ while (true) {
     })
     reviewCycle++
     continue
+  }
+  // Warnings never block: a fresh reviewer always finds new ones (or reverses
+  // the last fix), so re-reviewing them only burns the retry budget. Fix them
+  // once, without re-review; QA and CI still gate. Later ones go to the human.
+  if (warnings.length > 0 && !warningsFixed) {
+    log(`Review: ${warnings.length} warning — fixing once, no re-review`)
+    phase('rework')
+    await agent(`Fix these review warnings on PR #${prNumber} (branch ${branch}). WARNING: ${warnings.join('; ')}.`, {
+      agentType: 'claude-factory:reworker',
+      schema: reworkSchema,
+      model: models.rework,
+    })
+    warningsFixed = true
+    openWarnings = []
+  } else {
+    openWarnings = warnings
   }
 
   phase('qa')
@@ -225,13 +242,14 @@ await agent(`Comment on PR #${prNumber}: "## Ready for re-verification\\n\\n**Fi
 })
 
 const nextSteps = `Re-verify PR #${prNumber}, then /claude-factory:promote ${storyPath} or /claude-factory:rework ${storyPath} "<issue>" again.`
-log(`${storyPath} back in_review: PR #${prNumber} — ${ciSkipped ? 'no CI' : 'CI green'}, still draft. ${nextSteps}`)
+log(`${storyPath} back in_review: PR #${prNumber} — ${ciSkipped ? 'no CI' : 'CI green'}, still draft.${openWarnings.length ? ` Open warnings (not blocking): ${openWarnings.join('; ')}.` : ''} ${nextSteps}`)
 
 return {
   story: storyPath,
   pr: prNumber,
   status: 'in_review',
   retryCyclesUsed: { review: reviewCycle, qa: qaCycle, ci: ciCycle },
+  openWarnings,
   ciSkipped,
   escalated: false,
   nextSteps,
