@@ -101,9 +101,50 @@ const codified = await agent(`Extract reusable learnings from delivering ${story
 // ---- archive the story on the PR branch, then undraft (never merge) ----------
 
 phase('promote')
-await agent(`"git fetch origin && git checkout ${setup.branch} && git pull", carrying over any uncommitted CLAUDE.md edit (stash/pop if checkout refuses). In ${storyPath} set frontmatter "status: done", "git mv" it into docs/stories/done/, commit it together with any CLAUDE.md change ("chore: promote ${setup.id}"), and push. Only after the push succeeds: "gh pr ready ${setup.pr}". Never merge, close, or enable auto-merge.`, {
+// Twice in a row promote left files unstaged, so "done" now requires a clean
+// tree: every leftover path ends up committed or gitignored, and pushed.
+const CLEAN_RULES = `Leave "git status --porcelain" empty: every path it lists must end up either committed or gitignored, nothing else.
+- Generated or machine-local (build output, caches, logs, coverage, test/QA screenshots or recordings, .env or other secrets, editor/OS files) → add a .gitignore pattern for it. Never ignore an already-tracked file; never commit secrets.
+- Everything else (source, tests, docs, config, CLAUDE.md) → stage it.
+Never discard work: no "git checkout --", "git restore", "git clean", "git reset --hard", deleting files, or leaving it in a stash.`
+const REPORT_AND_READY = `Run "git status --porcelain --branch" and report its exact output as gitStatus. Only if it shows nothing but the "## " branch line, without "ahead": "gh pr ready ${setup.pr}". Never merge, close, or enable auto-merge.`
+const finishSchema = {
+  type: 'object',
+  required: ['gitStatus'],
+  properties: {
+    gitStatus: { type: 'string' },
+    committed: { type: 'array', items: { type: 'string' } },
+    gitignored: { type: 'array', items: { type: 'string' } },
+  },
+}
+// Clean = only the "## branch...origin/branch" header: nothing uncommitted, untracked, or unpushed.
+const isClean = status => {
+  const [head = '', ...rest] = String(status).trim().split('\n')
+  return head.startsWith('##') && !head.includes('[ahead') && rest.every(line => !line.trim())
+}
+
+let finish = await agent(`"git fetch origin && git checkout ${setup.branch} && git pull", carrying over any uncommitted changes (stash before checkout if it refuses, then "git stash pop"; leave no stash behind). "git mv ${storyPath}" into docs/stories/done/, then set frontmatter "status: done" in the moved file, then "git add" the moved file (git mv stages only the rename, not a content edit).
+
+${CLEAN_RULES}
+
+Commit everything as "chore: promote ${setup.id}" and push. ${REPORT_AND_READY}`, {
+  schema: finishSchema,
   model: UTILITY_MODEL,
 })
+if (!isClean(finish.gitStatus)) {
+  finish = await agent(`On branch ${setup.branch}, promoting ${setup.id} left the tree dirty or unpushed:
+${finish.gitStatus}
+
+${CLEAN_RULES}
+
+Commit ("chore: promote ${setup.id}: leftovers") and push. ${REPORT_AND_READY}`, {
+    schema: finishSchema,
+    model: UTILITY_MODEL,
+  })
+}
+if (!isClean(finish.gitStatus)) {
+  return { error: `Promote of ${storyPath} left git dirty or unpushed on ${setup.branch}; PR #${setup.pr} was not marked ready. "git status --porcelain --branch":\n${finish.gitStatus}` }
+}
 
 log(`Promoted ${storyPath}: PR #${setup.pr} is ready for human review/merge.${codified.claudeMdUpdated ? ` CLAUDE.md: ${codified.summary}` : ''}`)
 
@@ -112,4 +153,6 @@ return {
   pr: setup.pr,
   status: 'done',
   codified,
+  committed: finish.committed || [],
+  gitignored: finish.gitignored || [],
 }

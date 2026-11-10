@@ -150,7 +150,7 @@ const CASES = [
     file: join(ROOT, 'workflows/promote.js'),
     args: 'docs/stories/example.md',
     gateFailOnce: false, // promote's ci check has no retry loop — a forced failure would just dead-end every run
-    overrides: {},
+    overrides: { gitStatus: '## story/x...origin/story/x' }, // clean tree, so the run reaches the end
   },
 ]
 
