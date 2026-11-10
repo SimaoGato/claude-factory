@@ -1,48 +1,41 @@
 ---
 name: pr-conventions
-description: Conventions for branches, commits, and pull request descriptions. Use this whenever opening, updating, or describing a pull request, creating a feature branch, or writing commit messages in the /claude-factory:deliver workflow. Ensures PRs are reviewable and traceable back to the story.
+description: Conventions for branches, commits, and pull request descriptions. Use whenever creating a branch, writing commit messages, or opening/updating a PR in the claude-factory workflows.
 ---
 
 # PR conventions
 
 ## Branches
-- One story per branch: `story/<story-id>-<short-slug>` (e.g. `story/01-login`).
-- Rebase on the default branch before opening; keep history readable.
-- Always open a new branch against the **latest main**. So before checking to a new branch, run `git fetch origin && git checkout main && git pull origin main`.
+- Start from latest main: `git fetch origin && git checkout main && git pull origin main`.
+- One story per branch: `story/<story-id>-<slug>` (e.g. `story/STORY-01-login`). Bug fixes: `fix/<slug>`.
 
 ## Commits
-- Conventional style: `type(scope): summary` (feat, fix, test, refactor, docs,
-  chore). Imperative mood, ≤ 72 chars on the subject line.
-- Small, logically scoped commits. Tests and the code they cover can share a commit.
+- `type(scope): summary` — feat, fix, test, refactor, docs, chore. Imperative, subject ≤ 72 chars.
+- Small, logically scoped. A test and the code it covers may share a commit.
 
-## Pull request description
-Open as a **draft** until QA passes, then mark ready. Use this template:
+## PR
+Always open as **draft**. It stays draft until a human runs
+`/claude-factory:promote` — never undraft it yourself.
 
 ```
 ## Story
-Links: <path to story file> (STORY-<id>)
+<path to story file>
 
 ## What changed
-- bullet list of the meaningful changes
+- meaningful changes only
 
 ## Acceptance criteria → tests
 - AC1: <criterion> → <test name/path>
-- AC2: ...
 
 ## How to test locally
-1. <commands a reviewer runs>
+1. <commands>
 
 ## Notes / risks
-- migrations, feature flags, rollout, anything reviewers must know
-
-## QA evidence
-- added after the QA stage (links / paths)
+- migrations, flags, rollout — or "none"
 ```
 
-The "Acceptance criteria → tests" section above is where AC traceability
-belongs — not inline code comments in the diff (see `code-comments`).
+AC traceability lives here, not in code comments.
 
-## Review hygiene
-- Keep PRs small enough to review in one sitting. If a story produces a huge
-  diff, that is a signal the story was too big — flag it for re-slicing.
-- Respond to every review thread; resolve only when actually addressed.
+## Hygiene
+- Reviewable in one sitting. A huge diff means the story was too big — flag it for splitting.
+- Reply to every review thread; resolve only when actually addressed.

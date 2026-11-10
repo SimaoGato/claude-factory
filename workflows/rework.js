@@ -1,66 +1,46 @@
-// /claude-factory:rework <story-path> "<issue description>" — human-triggered
-// when manual verification of an `in_review` PR finds a problem. Fixes it on
-// the same branch, then re-runs the SAME bounded review/QA/CI stabilize loop
-// deliver.js uses, and lands back on `in_review` for you to re-check. Never
-// auto-promotes — run /claude-factory:promote yourself once you're satisfied.
+// /claude-factory:rework <story-path> "<issue>" — run by a human when manual
+// verification of an `in_review` PR finds a problem. Fixes it on the same
+// branch, re-runs deliver.js's Review ⇄ Rework ⇄ QA ⇄ CI loop, and lands back
+// on `in_review`. Never promotes — that's /claude-factory:promote.
 //
-// KNOWN TRADEOFF: the workflow runtime disallows import(), so the
-// review/QA/CI stabilize loop below is a duplicate of the one in
-// workflows/deliver.js (~40 lines) rather than a shared module. If you change
-// the loop's behavior in one file, change it in the other too.
-//
-// NOTE on runtime API: see the header comment in workflows/deliver.js — the
-// same phase()/agent() usage rules apply here.
+// Runtime API gotchas: see the header of workflows/deliver.js.
 
 export const meta = {
   name: 'rework',
   description: 'Fix a manually-reported issue on an in_review PR, re-stabilize, and return to in_review.',
 }
 
-const pipelineConfigSchema = {
-  type: 'object',
-  required: ['retry_budget', 'models', 'ci'],
-  properties: {
-    retry_budget: { type: 'integer', minimum: 1 },
-    models: {
-      type: 'object',
-      required: ['refine', 'challenge', 'implement', 'implement_light', 'review', 'rework', 'qa', 'codify'],
-      properties: {
-        refine: { type: 'string' }, challenge: { type: 'string' },
-        implement: { type: 'string' }, implement_light: { type: 'string' },
-        review: { type: 'string' }, rework: { type: 'string' },
-        qa: { type: 'string' }, codify: { type: 'string' },
-      },
-    },
-    ci: {
-      type: 'object',
-      required: ['watch_command'],
-      properties: { watch_command: { type: 'string' }, required: { type: 'boolean' } },
-    },
-  },
+// Cheap model for mechanical steps (read config/state, run gh, post comments).
+const UTILITY_MODEL = 'haiku'
+const DEFAULT_RETRY_BUDGET = 2
+
+const CONFIG_PROMPT = 'Read .claude/factory.yml if it exists (legacy fallback: the yaml block under "## Pipeline config" in CLAUDE.md, where ci.required means ci_required). Report only keys actually set there: retry_budget, ci_required, models (stage name → model). No file → report none of them.'
+const configProps = {
+  retry_budget: { type: 'integer', minimum: 1 },
+  ci_required: { type: 'boolean' },
+  models: { type: 'object', additionalProperties: { type: 'string' } },
 }
 
-const preflightSchema = {
+// The local story copy may be stale (deliver commits `in_review` to the PR
+// branch), so state is read from the PR branch when the local copy disagrees.
+const STORY_STATE_PROMPT = storyPath => `Read ${storyPath} frontmatter (id, status, pr). If the local copy isn't "in_review", run "git fetch origin", find the open PR whose head branch starts with "story/<id>" (gh pr list), and read the file from that branch with "git show origin/<branch>:${storyPath}" instead. Report id, status, pr, branch (the PR's head branch, via "gh pr view <pr> --json headRefName"), and the affected areas from its Implementation Plan.`
+const storyProps = {
+  id: { type: 'string' },
+  status: { type: 'string' },
+  pr: { type: 'integer' },
+  branch: { type: 'string' },
+  affectedAreas: { type: 'array', items: { type: 'string' } },
+}
+
+const setupSchema = {
   type: 'object',
-  required: ['authenticated', 'hasRepoScope', 'hasWorkflowScope', 'hasCI', 'message'],
+  required: ['ghReady', 'hasCI', 'message', 'id', 'status', 'pr', 'branch', 'affectedAreas'],
   properties: {
-    authenticated: { type: 'boolean' },
-    hasRepoScope: { type: 'boolean' },
-    hasWorkflowScope: { type: 'boolean' },
+    ...configProps,
+    ...storyProps,
+    ghReady: { type: 'boolean' },
     hasCI: { type: 'boolean' },
     message: { type: 'string' },
-  },
-}
-
-const storyStateSchema = {
-  type: 'object',
-  required: ['id', 'pr', 'branch', 'status', 'affectedAreas'],
-  properties: {
-    id: { type: 'string' },
-    pr: { type: 'integer' },
-    branch: { type: 'string' },
-    status: { type: 'string' },
-    affectedAreas: { type: 'array', items: { type: 'string' } },
   },
 }
 
@@ -103,9 +83,17 @@ const ciSchema = {
 }
 
 // ---- input ----------------------------------------------------------------
+// A slash command may hand over one raw string: `<story path> "<issue>"`.
 
-const storyPath = typeof args === 'string' ? args : args?.storyPath
-const issue = typeof args === 'object' ? args?.issue : undefined
+function parseArgs(a) {
+  if (a && typeof a === 'object') return a
+  const [storyPath, ...rest] = String(a ?? '').trim().split(/\s+/)
+  return { storyPath, rest: rest.join(' ').replace(/^(["'])(.*)\1$/, '$2') }
+}
+
+const input = parseArgs(args)
+const storyPath = input.storyPath
+const issue = input.issue || input.rest
 
 if (!storyPath || !issue) {
   return { error: 'usage: /claude-factory:rework <path to story file> "<issue description>"' }
@@ -116,54 +104,49 @@ function escalate(reason, extra) {
   return { story: storyPath, escalated: true, reason, ...extra }
 }
 
-phase('config')
-const config = await agent('Read the "## Pipeline config" fenced yaml block from CLAUDE.md at the project root and return it as structured data.', {
-  schema: pipelineConfigSchema,
-})
-const retryBudget = config.retry_budget
+phase('setup')
+const setup = await agent(`${CONFIG_PROMPT}
 
-phase('preflight')
-const preflight = await agent('Run "gh auth status" (and inspect its token-scopes output) via Bash. Report whether you are authenticated, whether the token has the "repo" scope, whether it has the "workflow" scope, and whether any *.yml/*.yaml files exist under .github/workflows/ (hasCI).', {
-  schema: preflightSchema,
+Then, read-only, check via Bash: "gh auth status" (ghReady = logged in with "repo" scope) and whether .github/workflows/ contains any *.yml/*.yaml (hasCI). Put any problem in message.
+
+Then: ${STORY_STATE_PROMPT(storyPath)}`, {
+  schema: setupSchema,
+  model: UTILITY_MODEL,
 })
-if (!preflight.authenticated || !preflight.hasRepoScope) {
-  return { error: `gh is not ready for this pipeline: ${preflight.message}. Run "gh auth login", then re-run /claude-factory:rework.` }
+const retryBudget = setup.retry_budget || DEFAULT_RETRY_BUDGET
+const models = setup.models || {}
+
+if (!setup.ghReady) {
+  return { error: `gh is not ready: ${setup.message}. Run "gh auth login", then re-run.` }
 }
-if (!preflight.hasCI && config.ci.required !== false) {
-  return { error: 'This repo has no .github/workflows/ configured, so "CI is green" (a Definition of Done item) can never be satisfied. Add a CI workflow that runs your build/tests, or set "ci: { required: false }" in CLAUDE.md\'s pipeline config to explicitly opt out for this project — then re-run /claude-factory:rework.' }
+if (!setup.hasCI && setup.ci_required !== false) {
+  return { error: 'No CI in .github/workflows/, so "CI is green" can never be satisfied. Add a CI workflow, or opt out with "ci_required: false" in .claude/factory.yml — then re-run.' }
 }
-
-phase('read-story')
-const story = await agent(`Read ${storyPath}: return its id, pr number, branch, status, and the affected areas listed in its Implementation Plan section.`, {
-  schema: storyStateSchema,
-})
-
-if (story.status !== 'in_review') {
-  return { error: `${storyPath} has status "${story.status}", not "in_review" — nothing to rework yet. Run /claude-factory:deliver first.` }
+if (setup.status !== 'in_review') {
+  return { error: `${storyPath} has status "${setup.status}", not "in_review" — nothing to rework. Run /claude-factory:deliver first.` }
 }
 
-// ---- fix the manually-reported issue first, on its own (not budget-charged
-// — a concretely reported bug isn't a runaway retry, it's known work) -------
+// ---- fix the reported issue first. Not charged to the retry budget: a
+// concrete human-reported bug is known work, not a runaway loop. ----------
+
+const prNumber = setup.pr
+const branch = setup.branch
 
 phase('rework')
-await agent(`Fix this manually-reported issue on PR #${story.pr} (branch ${story.branch}): ${issue}`, {
+await agent(`Fix this manually-reported issue on PR #${prNumber} (branch ${branch}): ${issue}`, {
   agentType: 'claude-factory:reworker',
   schema: reworkSchema,
-  model: config.models.rework,
+  model: models.rework,
 })
 
-// ---- re-stabilize: same bounded Review ⇄ Rework ⇄ QA ⇄ CI loop as deliver.js
+// ---- re-stabilize -------------------------------------------------------------
 
-const areas = story.affectedAreas.length ? story.affectedAreas : ['general']
-const prNumber = story.pr
-const branch = story.branch
+const areas = setup.affectedAreas.length ? setup.affectedAreas : ['general']
 let reviewCycle = 0, qaCycle = 0, ciCycle = 0
 let ciPassed = false, ciSkipped = false, escalateReason = null
 
-// The block between the markers below is kept byte-identical to the same
-// block in workflows/deliver.js — scripts/check-workflows.sh (run in
-// .github/workflows/validate.yml) diffs them and fails CI if they drift.
-// If you edit this loop, make the same edit in both files.
+// Kept byte-identical to the block in deliver.js (no import() in workflows);
+// scripts/check-workflows.sh fails CI if they drift.
 // STABILIZE-LOOP-START
 while (true) {
   phase('review')
@@ -171,7 +154,7 @@ while (true) {
     agent(`Review PR #${prNumber} (branch ${branch}), area: ${area}. Only review files in that area's diff.`, {
       agentType: 'claude-factory:code-reviewer',
       schema: reviewSchema,
-      model: config.models.review,
+      model: models.review,
       label: area,
     }),
   )
@@ -185,17 +168,17 @@ while (true) {
     await agent(`Fix these review findings on PR #${prNumber} (branch ${branch}). CRITICAL: ${critical.join('; ') || 'none'}. WARNING: ${warnings.join('; ') || 'none'}.`, {
       agentType: 'claude-factory:reworker',
       schema: reworkSchema,
-      model: config.models.rework,
+      model: models.rework,
     })
     reviewCycle++
     continue
   }
 
   phase('qa')
-  const qa = await agent(`QA-verify PR #${prNumber} against the acceptance criteria in ${storyPath}.`, {
+  const qa = await agent(`QA-verify PR #${prNumber} (branch ${branch}) against the acceptance criteria in ${storyPath}.`, {
     agentType: 'claude-factory:qa-verifier',
     schema: qaSchema,
-    model: config.models.qa,
+    model: models.qa,
   })
   if (!qa.passed) {
     if (qaCycle >= retryBudget) { escalateReason = 'QA retry budget exhausted'; break }
@@ -204,44 +187,45 @@ while (true) {
     await agent(`Fix this QA-reported bug on PR #${prNumber} (branch ${branch}): ${qa.bugReport}`, {
       agentType: 'claude-factory:reworker',
       schema: reworkSchema,
-      model: config.models.rework,
+      model: models.rework,
     })
     qaCycle++
     continue
   }
 
-  if (!preflight.hasCI) {
-    log('CI skipped — no .github/workflows/ configured and ci.required is false')
+  if (!setup.hasCI) {
+    log('CI skipped — no .github/workflows/ and ci_required is false')
     ciPassed = true; ciSkipped = true; break
   }
 
   phase('ci')
-  const ci = await agent(`Wait for CI on PR #${prNumber}: run "${config.ci.watch_command.replace('{pr_number}', prNumber)}" and report the final state. Do not merge or close the PR.`, {
+  const ci = await agent(`Wait for CI on PR #${prNumber}: run "gh pr checks ${prNumber} --watch --fail-fast". If it reports no checks yet, wait 30s and retry, up to 10 times. passed = every check passed. For each failing check, put its name plus the key error lines (from "gh run view <run-id> --log-failed") in failures. Never merge or close the PR.`, {
     schema: ciSchema,
+    model: UTILITY_MODEL,
   })
   if (ci.passed) { ciPassed = true; break }
   if (ciCycle >= retryBudget) { escalateReason = 'CI retry budget exhausted'; break }
-  log(`CI cycle ${ciCycle + 1}/${retryBudget}: FAILED — ${ci.failures.join('; ')}`)
+  log(`CI cycle ${ciCycle + 1}/${retryBudget}: FAILED — ${(ci.failures || []).join('; ')}`)
   phase('rework')
-  await agent(`Fix these CI failures on PR #${prNumber} (branch ${branch}): ${ci.failures.join('; ')}`, {
+  await agent(`Fix these CI failures on PR #${prNumber} (branch ${branch}): ${(ci.failures || []).join('; ') || 'see gh pr checks'}`, {
     agentType: 'claude-factory:reworker',
     schema: reworkSchema,
-    model: config.models.rework,
+    model: models.rework,
   })
   ciCycle++
 }
 // STABILIZE-LOOP-END
 if (!ciPassed) return escalate(`${escalateReason} during rework`, { pr: prNumber, reviewCycle, qaCycle, ciCycle })
 
-// ---- back to in_review for a human to re-check -----------------------------
-// (status is already in_review; just refresh the PR comment — never
-// codifies, never undrafts, never merges — same handoff as deliver.js)
+// ---- back to in_review (status already is) — never undrafts or merges --------
 
 phase('hand-off')
-await agent(`Post a comment on PR #${prNumber} with exactly this structure (fill in the blanks): "## Ready for re-verification\\n\\n**What changed this round:** ${issue}\\n\\n**Branch:** ${branch}\\n\\n**How to test locally:** <fill in — pull the branch and the commands to run it>". Do NOT change frontmatter status away from in_review, and do NOT undraft, merge, or close the PR.`)
+await agent(`Comment on PR #${prNumber}: "## Ready for re-verification\\n\\n**Fixed this round:** ${issue}\\n\\n**How to test locally:** <git checkout ${branch} && git pull, then the exact commands to run it>". Change nothing else; never undraft, merge, or close the PR.`, {
+  model: UTILITY_MODEL,
+})
 
-const nextSteps = `Manually re-verify PR #${prNumber}, then run /claude-factory:promote ${storyPath} (approve) or /claude-factory:rework ${storyPath} "<issue>" again (reject with a reason).`
-log(`${storyPath} is back in_review after rework: PR #${prNumber} — ${ciSkipped ? 'CI not configured, skipped' : 'CI green'}, still draft. ${nextSteps}`)
+const nextSteps = `Re-verify PR #${prNumber}, then /claude-factory:promote ${storyPath} or /claude-factory:rework ${storyPath} "<issue>" again.`
+log(`${storyPath} back in_review: PR #${prNumber} — ${ciSkipped ? 'no CI' : 'CI green'}, still draft. ${nextSteps}`)
 
 return {
   story: storyPath,

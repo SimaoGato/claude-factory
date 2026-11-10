@@ -1,15 +1,11 @@
 ---
 name: story-format
-description: The canonical user-story template and quality bar (INVEST, testable Given/When/Then acceptance criteria). Use this whenever writing, splitting, or reviewing user stories or acceptance criteria, especially in the /stories command and the Refine stage of the /claude-factory:deliver workflow.
+description: The canonical user-story template and quality bar (INVEST, testable Given/When/Then acceptance criteria). Use whenever writing, splitting, or reviewing stories, chores, bugfixes, or acceptance criteria.
 ---
 
 # Story format
 
-## Template
-
-Frontmatter is the machine-readable source of truth — `/status-glance` and
-`workflows/deliver.js` read it directly (via a schema'd `agent()` call in the
-latter case) instead of regexing prose, so keep it accurate and don't drop it.
+Frontmatter is machine-read by the workflows and `/status-glance` — keep it accurate.
 
 ```
 ---
@@ -25,48 +21,32 @@ pr: null
 As a <role>, I want <capability>, so that <benefit>.
 
 ## Context
-Why this exists. Link to PRD sections and the parent epic.
+Why this exists. Link PRD sections / the epic; don't copy them.
 
-## Design references (optional — UI-affecting stories only)
-- Image(s) at `docs/stories/assets/<story-id>/`, one line each describing
-  what it shows (e.g. "dashboard.png — target layout for the summary view").
-- If designed with Claude Design or Figma: export/save a PNG or screenshot
-  into that folder — story-refiner and implementer read local images only,
-  they cannot fetch a live artifact/Figma URL.
+## Design references (UI stories only, optional)
+- `docs/stories/assets/<story-id>/<file>.png` — what it shows.
+  Local images only: agents can't open Figma/design-tool URLs, so export a PNG.
 
 ## Acceptance criteria
 1. Given <context>, when <action>, then <observable outcome>.
-2. ...
-(each criterion must be objectively testable)
 
 ## Out of scope
-- explicitly excluded items
+- excluded items
 
 ## Technical notes
-- best-guess affected areas / file types (Refine will confirm)
-
-## Definition of Done
-See CLAUDE.md.
+- best-guess affected areas (Refine confirms)
 ```
 
-`status` is one of: `draft`, `ready`, `in_progress`, `in_review`, `blocked`,
-`done`. `in_review` means `/claude-factory:deliver` (or `rework`) got to a
-green-CI, still-draft PR and is waiting on a human to manually verify it
-before `/claude-factory:promote` marks it `done`. `pr` is `null` until a PR
-exists, then the PR number. `CHORE-<NN>` and `BUGFIX-<NN>` files use the same
-frontmatter shape (`id: CHORE-<NN>` / `id: BUGFIX-<NN>`; chores use
-`epic: maintenance`).
+- `status`: `draft` → `in_progress` → `in_review` (green-CI draft PR awaiting a
+  human) → `done`; or `blocked`. `pr`: `null` until a PR exists, then its number.
+- Chores: `id: CHORE-<NN>`, `epic: maintenance`. Bugfixes: `id: BUGFIX-<NN>`.
+- Numbering: next unused number for that prefix across **both**
+  `docs/stories/*.md` and `docs/stories/done/*.md`.
 
 ## Quality bar — INVEST
-- **Independent**: deliverable on its own branch/PR without waiting on siblings.
-- **Negotiable**: states the need, not a rigid solution.
-- **Valuable**: a user or the business gains something observable.
-- **Estimable**: small enough to reason about; if not, split it.
-- **Small**: fits one `/claude-factory:deliver` run (a few hours of agent work). If a story
-  would produce a huge diff, split it first.
-- **Testable**: every acceptance criterion can be turned into a passing test.
+Independent · Negotiable (need, not solution) · Valuable · Estimable ·
+Small (one `/claude-factory:deliver` run) · Testable (every AC can become a test).
 
-## Splitting heuristics when a story is too big
-- By workflow step, by data variation, by happy-path vs edge-cases, by
-  interface (API first, UI second), or by operations (create / read / update /
-  delete) — pick the seam that yields independently valuable slices.
+## Splitting a big story
+By workflow step, data variation, happy path vs edge cases, interface (API
+then UI), or CRUD operation — pick the seam that gives independently valuable slices.

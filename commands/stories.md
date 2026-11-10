@@ -5,37 +5,12 @@ allowed-tools: Read, Write, Edit, Glob, Grep
 model: opus
 ---
 
-You are running the **Story breakdown** phase. Target epic: $ARGUMENTS
+**Story breakdown** for epic: $ARGUMENTS
 
-> The `model:` pin above only covers the **first turn** — Claude Code resumes the
-> session model on the next prompt, and this command ends by asking which story
-> to deliver. Tell the user to run `/model opus` for the session if they want
-> Opus for the follow-ups too.
+(`model: opus` covers only this turn; suggest `/model opus` for the follow-ups.)
 
-1. Read the epic file `docs/epics/$ARGUMENTS-*.md` and the PRD for context.
-   If the epic file does not exist, list available epics and stop. Also check
-   that `CLAUDE.md` exists and has a `## Pipeline config` section — every
-   story written here is destined for `/claude-factory:deliver`, which reads
-   that block first thing. If it's missing, tell the user to run `/discover`
-   (it scaffolds `CLAUDE.md`) and stop.
-2. Consult the `story-format` skill for the exact story template and the
-   "INVEST" quality bar. Each story must be small enough to deliver in one
-   `/claude-factory:deliver` run (a few hours of agent work), and independently testable.
-3. For each story create `docs/stories/STORY-<NN>-<slug>.md` containing:
-   - Story id and parent epic id
-   - User story sentence ("As a … I want … so that …")
-   - Context / background (links to PRD sections)
-   - **Acceptance criteria** as Given/When/Then, numbered and testable
-   - Out of scope
-   - Technical notes / affected areas (best guess; Refine will firm it up)
-   - Definition of Done reference (see CLAUDE.md)
-4. Number stories sequentially within the epic. To pick `<NN>`, scan both
-   `docs/stories/*.md` and `docs/stories/done/*.md` for existing
-   `STORY-<NN>-*.md` files and use the next unused number — archived stories
-   still count toward numbering so a new story never collides with one
-   that's been moved to `done/`.
-5. Present the list and ask which story to deliver. Remind the user they can
-   then run `/claude-factory:deliver docs/stories/STORY-<NN>-<slug>.md`.
+1. Read `docs/epics/$ARGUMENTS-*.md`. Missing → list available epics; stop. Read only the PRD sections it links.
+2. Write each story per the `story-format` skill as `docs/stories/STORY-<NN>-<slug>.md`. Each must fit one `/claude-factory:deliver` run and be independently testable; ACs precise enough to drive tests.
+3. Show the list and ask which to deliver: `/claude-factory:deliver docs/stories/STORY-<NN>-<slug>.md`.
 
-Write stories in the user's language (default: English), but keep
-acceptance criteria precise enough to drive tests.
+Write in the user's language.

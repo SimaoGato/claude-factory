@@ -137,11 +137,12 @@ const CASES = [
     file: join(ROOT, 'workflows/deliver.js'),
     args: 'docs/stories/example.md',
     gateFailOnce: true,
-    overrides: { retry_budget: 6 }, // see header: room for review+qa+ci to each fail once then recover
+    // room for each gate to fail once then recover; 'standard' so Challenge runs
+    overrides: { retry_budget: 6, complexity: 'standard', escalated: false },
   },
   {
     file: join(ROOT, 'workflows/rework.js'),
-    args: { storyPath: 'docs/stories/example.md', issue: 'example issue' },
+    args: 'docs/stories/example.md "example issue"', // raw slash-command string
     gateFailOnce: true,
     overrides: { retry_budget: 6 },
   },

@@ -1,6 +1,6 @@
 {
   "name": "claude-factory",
-  "description": "Simão's claude-factory plugin plus a mirrored ponytail entry so it can be declared as a same-marketplace dependency.",
+  "description": "claude-factory plus mirrored ponytail and caveman entries so they can be declared as same-marketplace dependencies.",
   "owner": {
     "name": "Simão Gato",
     "email": "simao.valedegato@gmail.com"
@@ -19,6 +19,15 @@
         "url": "https://github.com/DietrichGebert/ponytail.git"
       },
       "description": "Mirrors DietrichGebert/ponytail so claude-factory can declare it as a same-marketplace dependency. Upstream: https://github.com/DietrichGebert/ponytail — 'write the least code' discipline, active by default (mode: full) once installed.",
+      "category": "productivity"
+    },
+    {
+      "name": "caveman",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/JuliusBrussee/caveman.git"
+      },
+      "description": "Mirrors JuliusBrussee/caveman so claude-factory can declare it as a same-marketplace dependency. Terse agent prose (fewer output tokens); code, commits, PRs and docs stay normal.",
       "category": "productivity"
     }
   ]

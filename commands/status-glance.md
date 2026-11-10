@@ -1,39 +1,26 @@
 ---
-description: Show the status of all stories and chores at a glance — what's done, what's next, what's blocked.
+description: Show the status of all stories, chores, and bugfixes at a glance — what's done, what's waiting on you, what's next.
 allowed-tools: Read, Glob, Grep
 model: haiku
 ---
 
-Scan every file in `docs/stories/*.md` and `docs/stories/done/*.md` —
-`STORY-*.md`, `CHORE-*.md`, **and** `BUGFIX-*.md` (bugfixes created by `/fix`
-must show up here too). For each one, read the `status:` field from the
-frontmatter (if missing, treat as `draft`), the epic, and the title. Files in
-`docs/stories/done/` are reported in the same summary table below,
-distinguished by their `status:` value as already described — the directory
-split changes where files live, not what gets reported.
+Read-only. For every `STORY-*`, `CHORE-*`, `BUGFIX-*` in `docs/stories/` and
+`docs/stories/done/`, read only the frontmatter (`id`, `epic`, `status`; missing
+status = `draft`) and the `# title` line — not the body.
 
-Render `status:` as: `done` → `done ✅`, `blocked` → `blocked ❌`,
-`in_review` → `in_review 🔎`, anything else shown as-is (`draft`, `ready`,
-`in_progress`).
-
-Present a summary table grouped by epic, then standalone chores:
+Table grouped by epic, then `maintenance`:
 
 ```
-Epic          | Story                              | Status
---------------|------------------------------------|----------
-EPIC-01       | STORY-01 Scaffold and deploy        | done ✅
-EPIC-01       | STORY-02 Sign up and sign in        | done ✅
-EPIC-01       | STORY-03 Route protection            | draft
-...           | ...                                  | ...
-maintenance   | CHORE-09 Upgrade Node to LTS         | draft
+Epic     | Item                         | Status
+---------|------------------------------|-------------
+EPIC-01  | STORY-01 Sign up             | done ✅
+EPIC-01  | STORY-02 Route protection    | in_review 🔎
 ```
+`done` → `done ✅`, `in_review` → `in_review 🔎`, `blocked` → `blocked ❌`, others as-is.
 
-After the table, summarise:
-- Total / done / in_review / in-progress / draft / blocked
-- Any `in_review` stories: call them out by name and remind the user they're
-  waiting on manual verification, then `/claude-factory:promote <path>`
-  (approve) or `/claude-factory:rework <path> "<issue>"` (reject).
-- Next deliverable: the first `draft` story whose dependencies (if any) are all
-  `done`. Suggest the `/claude-factory:deliver` workflow for it.
+Then:
+- Counts per status.
+- Each `in_review` item: waiting on manual verification → `/claude-factory:promote <path>` or `/claude-factory:rework <path> "<issue>"`.
+- Next: the first `draft`/`ready` story whose epic's dependencies are done → `/claude-factory:deliver <path>`.
 
-Keep it short. Do not modify any files.
+Short. Modify nothing.

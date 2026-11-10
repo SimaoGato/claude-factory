@@ -1,160 +1,115 @@
-// /claude-factory:promote — human-triggered approval, run only after you've
-// manually verified an `in_review` PR from /claude-factory:deliver or
-// /claude-factory:rework. Codifies learnings, then undrafts the PR. Never
-// runs "gh pr merge" — a human always merges.
+// /claude-factory:promote <story-path> — run by a human after manually verifying
+// an `in_review` PR. Re-checks CI, codifies learnings into CLAUDE.md, archives
+// the story, then undrafts the PR. Never merges — a human always does.
 //
-// This exists as its own workflow (not a stage inside deliver.js) because the
-// dynamic-workflow runtime cannot pause mid-run for user sign-off; per
-// Claude Code's docs: "For sign-off between stages, run each stage as its
-// own workflow." See the same note in workflows/deliver.js and rework.js.
-//
-// NOTE on runtime API: see the header comment in workflows/deliver.js — the
-// same phase()/agent() usage rules apply here.
+// Separate workflow (not a deliver.js stage) because the runtime can't pause
+// mid-run for sign-off. Runtime API gotchas: see the header of workflows/deliver.js.
 
 export const meta = {
   name: 'promote',
-  description: "Approve a manually-verified in_review PR: codify learnings, then undraft it (never merges).",
+  description: 'Approve a manually-verified in_review PR: codify learnings, then undraft it (never merges).',
 }
 
-const pipelineConfigSchema = {
-  type: 'object',
-  required: ['retry_budget', 'models', 'ci'],
-  properties: {
-    retry_budget: { type: 'integer', minimum: 1 },
-    models: {
-      type: 'object',
-      required: ['refine', 'challenge', 'implement', 'implement_light', 'review', 'rework', 'qa', 'codify'],
-      properties: {
-        refine: { type: 'string' }, challenge: { type: 'string' },
-        implement: { type: 'string' }, implement_light: { type: 'string' },
-        review: { type: 'string' }, rework: { type: 'string' },
-        qa: { type: 'string' }, codify: { type: 'string' },
-      },
-    },
-    ci: {
-      type: 'object',
-      required: ['watch_command'],
-      properties: { watch_command: { type: 'string' } },
-    },
-  },
+// Cheap model for mechanical steps (read state, run gh/git).
+const UTILITY_MODEL = 'haiku'
+
+const CONFIG_PROMPT = 'Read .claude/factory.yml if it exists (legacy fallback: the yaml block under "## Pipeline config" in CLAUDE.md, where ci.required means ci_required). Report only keys actually set there: retry_budget, ci_required, models (stage name → model). No file → report none of them.'
+const configProps = {
+  retry_budget: { type: 'integer', minimum: 1 },
+  ci_required: { type: 'boolean' },
+  models: { type: 'object', additionalProperties: { type: 'string' } },
 }
 
-const preflightSchema = {
+// The local story copy may be stale (deliver commits `in_review` to the PR
+// branch), so state is read from the PR branch when the local copy disagrees.
+const STORY_STATE_PROMPT = storyPath => `Read ${storyPath} frontmatter (id, status, pr). If the local copy isn't "in_review", run "git fetch origin", find the open PR whose head branch starts with "story/<id>" (gh pr list), and read the file from that branch with "git show origin/<branch>:${storyPath}" instead. Report id, status, pr, branch (the PR's head branch, via "gh pr view <pr> --json headRefName"), and the affected areas from its Implementation Plan.`
+const storyProps = {
+  id: { type: 'string' },
+  status: { type: 'string' },
+  pr: { type: 'integer' },
+  branch: { type: 'string' },
+  affectedAreas: { type: 'array', items: { type: 'string' } },
+}
+
+const setupSchema = {
   type: 'object',
-  required: ['authenticated', 'hasRepoScope', 'hasWorkflowScope', 'message'],
+  required: ['ghReady', 'hasCI', 'ciPassed', 'message', 'id', 'status', 'pr', 'branch'],
   properties: {
-    authenticated: { type: 'boolean' },
-    hasRepoScope: { type: 'boolean' },
-    hasWorkflowScope: { type: 'boolean' },
+    ...configProps,
+    ...storyProps,
+    ghReady: { type: 'boolean' },
+    hasCI: { type: 'boolean' },
+    ciPassed: { type: 'boolean' },
+    ciFailures: { type: 'array', items: { type: 'string' } },
     message: { type: 'string' },
   },
 }
 
-const storyStateSchema = {
-  type: 'object',
-  required: ['id', 'pr', 'status'],
-  properties: {
-    id: { type: 'string' },
-    pr: { type: 'integer' },
-    status: { type: 'string' },
-  },
-}
-
-// Two-tier codify policy: by default just one dated bullet in the running
-// docs/adr/DECISIONS.md log. A standalone ADR file is the exception, not the
-// default — only when the decision is hard to reverse, crosses multiple
-// modules/teams, or was a genuine judgment call among real alternatives.
-// `adrCreated`/`adrJustification` make that choice auditable in the report.
 const codifySchema = {
   type: 'object',
-  required: ['claudeMdUpdated', 'decisionLogEntry', 'adrCreated'],
+  required: ['claudeMdUpdated'],
   properties: {
     claudeMdUpdated: { type: 'boolean' },
-    decisionLogEntry: { type: 'string' },
-    adrCreated: { type: 'boolean' },
-    adrJustification: { type: 'string' },
-    adrPath: { type: 'string' },
+    summary: { type: 'string' },
   },
 }
 
 // ---- input ----------------------------------------------------------------
 
-const storyPath = typeof args === 'string' ? args : args?.storyPath
+const storyPath = String((args && typeof args === 'object' ? args.storyPath : args) ?? '').trim().split(/\s+/)[0]
 
 if (!storyPath) {
   return { error: 'usage: /claude-factory:promote <path to story file>' }
 }
 
-phase('config')
-const config = await agent('Read the "## Pipeline config" fenced yaml block from CLAUDE.md at the project root and return it as structured data.', {
-  schema: pipelineConfigSchema,
-})
+// ---- setup: config, gh, story state, and CURRENT CI status in one call -------
+// CI is re-checked because time has passed since in_review: a new push or a
+// flaky check may have turned it red.
 
-phase('preflight')
-const preflight = await agent('Run "gh auth status" (and inspect its token-scopes output) via Bash. Report whether you are authenticated, whether the token has the "repo" scope, and whether it has the "workflow" scope.', {
-  schema: preflightSchema,
+phase('setup')
+const setup = await agent(`${CONFIG_PROMPT}
+
+Then, read-only, check via Bash: "gh auth status" (ghReady = logged in with "repo" scope) and whether .github/workflows/ contains any *.yml/*.yaml (hasCI). Put any problem in message.
+
+Then: ${STORY_STATE_PROMPT(storyPath)}
+
+Finally, if hasCI: run "gh pr checks <pr>" (no --watch) and report ciPassed = every check passed, with failing check names in ciFailures. No CI → ciPassed = true.`, {
+  schema: setupSchema,
+  model: UTILITY_MODEL,
 })
-if (!preflight.authenticated || !preflight.hasRepoScope) {
-  return { error: `gh is not ready for this pipeline: ${preflight.message}. Run "gh auth login", then re-run /claude-factory:promote.` }
+const models = setup.models || {}
+
+if (!setup.ghReady) {
+  return { error: `gh is not ready: ${setup.message}. Run "gh auth login", then re-run.` }
+}
+if (setup.status !== 'in_review') {
+  return { error: `${storyPath} has status "${setup.status}", not "in_review" — nothing to promote. Run /claude-factory:deliver or /claude-factory:rework first.` }
+}
+if (setup.hasCI && !setup.ciPassed) {
+  return { error: `CI is no longer green on PR #${setup.pr} (${(setup.ciFailures || []).join('; ') || 'unknown failure'}). Investigate, or run /claude-factory:rework.` }
 }
 
-phase('read-story')
-const story = await agent(`Read ${storyPath} frontmatter and return its id, pr number, and current status.`, {
-  schema: storyStateSchema,
-})
-
-if (story.status !== 'in_review') {
-  return { error: `${storyPath} has status "${story.status}", not "in_review" — nothing to promote. Run /claude-factory:deliver or /claude-factory:rework first.` }
-}
-
-// ---- re-verify CI is STILL green before doing anything irreversible -------
-// `deliver`/`rework` confirmed CI was green when they finished, but time may
-// have passed since — someone could have pushed another commit to the branch,
-// or a flaky test could have flipped. Check current status (not --watch, it
-// should already be resolved) rather than trusting stale information.
-
-const ciSchema = {
-  type: 'object',
-  required: ['passed'],
-  properties: {
-    passed: { type: 'boolean' },
-    failures: { type: 'array', items: { type: 'string' } },
-  },
-}
-
-phase('verify-ci')
-const ci = await agent(`Check current CI status on PR #${story.pr}: run "gh pr checks ${story.pr} --json name,state" (no --watch — just the current status) and report whether it's passing.`, {
-  schema: ciSchema,
-})
-if (!ci.passed) {
-  return { error: `CI is not green on PR #${story.pr} anymore (${ci.failures.join('; ') || 'unknown failure'}) — something changed since it was marked in_review. Investigate, or run /claude-factory:rework instead of promoting on stale information.` }
-}
-
-// ---- codify (two-tier: decision log by default, ADR only above the bar) ---
+// ---- codify ----------------------------------------------------------------
 
 phase('codify')
-const codified = await agent(`Extract reusable learnings from delivering ${storyPath} (PR #${story.pr}). Per the codifier agent's instructions: update CLAUDE.md conventions if warranted, and append one dated bullet to docs/adr/DECISIONS.md. Only create a standalone docs/adr/ADR-<NNN>-<slug>.md if this decision is hard to reverse, crosses multiple modules/teams, or was a genuine judgment call among real alternatives — if you do, say exactly why in adrJustification.`, {
+const codified = await agent(`Extract reusable learnings from delivering ${storyPath} (PR #${setup.pr}, branch ${setup.branch}) into CLAUDE.md, per the codifier agent's instructions. Read the PR's diff and review/QA comments with gh if you need them.`, {
   agentType: 'claude-factory:codifier',
   schema: codifySchema,
-  model: config.models.codify,
+  model: models.codify,
 })
 
-// ---- promote: undraft PR (never merge), archive story ---------------------
+// ---- archive the story on the PR branch, then undraft (never merge) ----------
 
 phase('promote')
-await agent(`In ${storyPath}, set frontmatter "status: done", git mv the file into docs/stories/done/, commit that change, and push it to the PR's branch (the story move must land on the remote branch BEFORE the PR is marked ready, otherwise a human merging right away will merge without it). Only after the push succeeds, mark PR #${story.pr} ready for review (undraft it, e.g. "gh pr ready ${story.pr}"). Do NOT merge, close, or auto-merge it under any circumstances — a human merges it.`)
+await agent(`"git fetch origin && git checkout ${setup.branch} && git pull", carrying over any uncommitted CLAUDE.md edit (stash/pop if checkout refuses). In ${storyPath} set frontmatter "status: done", "git mv" it into docs/stories/done/, commit it together with any CLAUDE.md change ("chore: promote ${setup.id}"), and push. Only after the push succeeds: "gh pr ready ${setup.pr}". Never merge, close, or enable auto-merge.`, {
+  model: UTILITY_MODEL,
+})
 
-log(`Promoted ${storyPath}: PR #${story.pr} is now ready for human review/merge.${codified.adrCreated ? ` New ADR: ${codified.adrPath}` : ''}`)
+log(`Promoted ${storyPath}: PR #${setup.pr} is ready for human review/merge.${codified.claudeMdUpdated ? ` CLAUDE.md: ${codified.summary}` : ''}`)
 
 return {
   story: storyPath,
-  pr: story.pr,
+  pr: setup.pr,
   status: 'done',
-  codified: {
-    claudeMdUpdated: codified.claudeMdUpdated,
-    decisionLogEntry: codified.decisionLogEntry,
-    adrCreated: codified.adrCreated,
-    adrJustification: codified.adrJustification,
-    adrPath: codified.adrPath,
-  },
+  codified,
 }

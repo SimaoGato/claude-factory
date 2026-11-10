@@ -1,13 +1,14 @@
 {
   "name": "claude-factory",
   "displayName": "Claude Factory",
-  "version": "0.3.1",
-  "description": "PRD → epics → stories → implementation pipeline: discover/epics/stories/triage/fix commands plus deterministic deliver/promote/rework workflows that take a story to a green-CI PR with a human sign-off gate before it's marked ready.",
+  "version": "0.4.0",
+  "description": "PRD → epics → stories → implementation pipeline: discover/epics/stories/triage/fix commands plus deterministic deliver/promote/rework workflows that take a story to a green-CI draft PR, with a human sign-off gate before it's marked ready.",
   "author": {
     "name": "Simão Gato"
   },
   "keywords": ["sdlc", "pipeline", "pm", "delivery", "workflow"],
   "dependencies": [
-    { "name": "ponytail" }
+    { "name": "ponytail" },
+    { "name": "caveman" }
   ]
 }
